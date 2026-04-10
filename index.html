@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -17,6 +17,14 @@
             to { opacity: 1; transform: translateY(0); }
         }
         .message-animate { animation: fade-in-up 0.2s ease-out; }
+        .typing-indicator span { animation: blink 1.4s infinite both; }
+        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes blink {
+            0% { opacity: 0.2; }
+            20% { opacity: 1; }
+            100% { opacity: 0.2; }
+        }
     </style>
 </head>
 <body class="font-sans antialiased">
@@ -60,13 +68,19 @@
     </div>
 
     <div class="flex-1 flex flex-col bg-white dark:bg-black">
-        <div class="p-4 border-b border-gray-300 dark:border-gray-800 flex items-center">
-            <button id="mobile-back-btn" class="lg:hidden mr-3 p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-800 hidden">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-            </button>
-            <div>
-                <h3 id="active-chat-name" class="font-semibold text-lg"></h3>
+        <div class="p-4 border-b border-gray-300 dark:border-gray-800 flex items-center justify-between">
+            <div class="flex items-center">
+                <button id="mobile-back-btn" class="lg:hidden mr-3 p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-800 hidden">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                </button>
+                <div>
+                    <h3 id="active-chat-name" class="font-semibold text-lg"></h3>
+                    <div id="chat-status" class="text-xs opacity-70"></div>
+                </div>
             </div>
+            <button id="delete-chat-btn" class="text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 p-2 rounded-full hidden" title="Удалить чат">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+            </button>
         </div>
 
         <div id="messages-container" class="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-hidden">
@@ -76,6 +90,7 @@
         </div>
 
         <div class="p-4 border-t border-gray-300 dark:border-gray-800">
+            <div id="typing-status" class="text-xs opacity-50 mb-1 h-5"></div>
             <form id="send-message-form" class="flex items-center space-x-2">
                 <input type="text" id="message-input" placeholder="Сообщение..." class="flex-1 bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-full px-4 py-3 focus:outline-none focus:ring-2 focus:ring-gray-400" autocomplete="off" disabled>
                 <label for="file-upload" class="cursor-pointer p-3 rounded-full hover:bg-gray-200 dark:hover:bg-gray-800">
@@ -117,9 +132,11 @@
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         
         let currentUser = null, currentProfile = null, activeChat = null, chatsList = [];
-        let realtimeChannel = null, chatsChannel = null;
+        let realtimeChannel = null, chatsChannel = null, typingChannel = null;
         let isLoginMode = false, db, theme = localStorage.getItem('theme') || 'dark';
         let pendingMessages = new Map();
+        let typingTimeout = null;
+        let notificationPermissionGranted = false;
         
         const authModal = document.getElementById('auth-modal');
         const authForm = document.getElementById('auth-form');
@@ -138,8 +155,12 @@
         const uploadStatus = document.getElementById('upload-status');
         const chatListDiv = document.getElementById('chat-list');
         const activeChatName = document.getElementById('active-chat-name');
+        const chatStatus = document.getElementById('chat-status');
         const userNicknameDisplay = document.getElementById('user-nickname-display');
+        const deleteChatBtn = document.getElementById('delete-chat-btn');
+        const typingStatusDiv = document.getElementById('typing-status');
         
+        // ---------- Инициализация ----------
         async function initDB() { db = await idb.openDB('chat-cache', 1, { upgrade(db){ db.createObjectStore('files'); }}); }
         initDB();
         
@@ -169,101 +190,83 @@
             }
         });
         
-        async function checkSession() {
-            authTitle.textContent = 'Загрузка...';
-            authLoading.classList.remove('hidden');
-            authForm.classList.add('hidden');
+        // ---------- Уведомления ----------
+        async function requestNotificationPermission() {
+            if (!('Notification' in window)) return;
+            if (Notification.permission === 'default') {
+                await Notification.requestPermission();
+            }
+            notificationPermissionGranted = Notification.permission === 'granted';
+        }
+        
+        function showNotification(title, body, tag) {
+            if (!notificationPermissionGranted || document.hasFocus()) return;
             try {
-                const { data: { session } } = await supabase.auth.getSession();
-                if (session?.user) {
-                    currentUser = session.user;
-                    await loadProfile(currentUser.id);
-                    showApp();
-                } else { showAuthForm(); }
-            } catch (e) { displayError('Ошибка', e); showAuthForm(); }
+                new Notification(title, { body, tag, icon: '/favicon.ico' });
+            } catch(e) {}
         }
         
-        async function loadProfile(userId) {
-            const { data } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
-            if (!data) throw new Error('Профиль не найден');
-            currentProfile = data;
-            userNicknameDisplay.textContent = data.nickname;
+        // ---------- Статус пользователя (онлайн/печатает) ----------
+        async function updateUserOnlineStatus(isOnline) {
+            if (!currentUser) return;
+            await supabase.from('profiles').update({ is_online: isOnline, last_seen: new Date().toISOString() }).eq('id', currentUser.id);
         }
         
-        function showAuthForm() {
-            authLoading.classList.add('hidden');
-            authForm.classList.remove('hidden');
-            authTitle.textContent = isLoginMode ? 'Вход' : 'Регистрация';
-            document.getElementById('auth-submit-btn').textContent = isLoginMode ? 'Войти' : 'Зарегистрироваться';
-            document.getElementById('switch-auth-mode').textContent = isLoginMode ? '↻ Регистрация' : '↻ Войти';
-            clearError();
+        function startOnlineHeartbeat() {
+            updateUserOnlineStatus(true);
+            const interval = setInterval(() => {
+                if (currentUser) updateUserOnlineStatus(true);
+            }, 30000);
+            window.addEventListener('beforeunload', () => {
+                updateUserOnlineStatus(false);
+                if (typingChannel) supabase.removeChannel(typingChannel);
+            });
         }
         
-        function showApp() {
-            authModal.classList.add('hidden');
-            document.getElementById('logout-btn').classList.remove('hidden');
-            setupChatsRealtime();
-            loadChats();
+        function formatLastSeen(lastSeen) {
+            if (!lastSeen) return 'никогда';
+            const diff = (new Date() - new Date(lastSeen)) / 1000;
+            if (diff < 60) return 'только что';
+            if (diff < 3600) return `${Math.floor(diff/60)} мин назад`;
+            if (diff < 86400) return `${Math.floor(diff/3600)} ч назад`;
+            return new Date(lastSeen).toLocaleDateString();
         }
         
-        document.getElementById('switch-auth-mode').addEventListener('click', ()=>{
-            isLoginMode = !isLoginMode;
-            showAuthForm();
-        });
-        
-        authForm.addEventListener('submit', async (e)=>{
-            e.preventDefault();
-            clearError();
-            const nickname = document.getElementById('auth-nickname').value.trim();
-            const password = document.getElementById('auth-password').value;
-            try {
-                if (isLoginMode) {
-                    const { data: profile } = await supabase.from('profiles').select('id').eq('nickname', nickname).maybeSingle();
-                    if (!profile) throw new Error('Пользователь не найден');
-                    const { data, error } = await supabase.auth.signInWithPassword({ email: `${nickname}@temp.mail`, password });
-                    if (error) throw error;
-                    currentUser = data.user;
-                    await loadProfile(currentUser.id);
-                    showApp();
-                } else {
-                    const email = `${nickname}@temp.mail`;
-                    const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { nickname } } });
-                    if (error) throw error;
-                    await new Promise(r=>setTimeout(r,1000));
-                    const { error: loginErr } = await supabase.auth.signInWithPassword({ email, password });
-                    if (loginErr) throw loginErr;
-                    currentUser = data.user;
-                    await loadProfile(data.user.id);
-                    showApp();
-                }
-            } catch(e) { displayError('Ошибка', e); }
-        });
-        
-        document.getElementById('logout-btn').addEventListener('click', async ()=>{
-            if (chatsChannel) supabase.removeChannel(chatsChannel);
-            await supabase.auth.signOut();
-            location.reload();
-        });
-        
-        function setupChatsRealtime() {
-            if (chatsChannel) supabase.removeChannel(chatsChannel);
-            chatsChannel = supabase.channel('chats-list')
-                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chats' }, (payload) => {
-                    const chat = payload.new;
-                    if (chat.user1_id === currentUser.id || chat.user2_id === currentUser.id) loadChats();
-                })
-                .subscribe();
+        async function getUserStatus(userId) {
+            const { data } = await supabase.from('profiles').select('is_online, last_seen').eq('id', userId).single();
+            if (!data) return 'неизвестно';
+            if (data.is_online) return 'в сети';
+            return `был(а) ${formatLastSeen(data.last_seen)}`;
         }
         
+        function updateChatStatusInSidebar(chatId, otherUserId) {
+            const chatElement = document.querySelector(`.chat-item[data-chat-id="${chatId}"]`);
+            if (chatElement) {
+                getUserStatus(otherUserId).then(status => {
+                    const statusSpan = chatElement.querySelector('.chat-status');
+                    if (statusSpan) statusSpan.textContent = status;
+                });
+            }
+        }
+        
+        // ---------- Работа с чатами (мягкое удаление, сортировка) ----------
         async function loadChats() {
             chatListDiv.innerHTML = '<div class="text-center opacity-50 py-10">Загрузка...</div>';
             const { data, error } = await supabase
                 .from('chats')
-                .select(`id, user1_id, user2_id, user1:profiles!chats_user1_id_fkey(nickname), user2:profiles!chats_user2_id_fkey(nickname)`)
+                .select(`id, user1_id, user2_id, deleted_by_user1, deleted_by_user2, last_message_at,
+                         user1:profiles!chats_user1_id_fkey(nickname, is_online, last_seen),
+                         user2:profiles!chats_user2_id_fkey(nickname, is_online, last_seen)`)
                 .or(`user1_id.eq.${currentUser.id},user2_id.eq.${currentUser.id}`)
-                .order('created_at', { ascending: false });
+                .order('last_message_at', { ascending: false, nullsLast: true });
             if (error) { chatListDiv.innerHTML = '<div class="text-center text-red-500 py-10">Ошибка</div>'; return; }
-            chatsList = data || [];
+            
+            // Фильтруем чаты, которые текущий пользователь удалил
+            chatsList = (data || []).filter(chat => {
+                const isDeletedByMe = (chat.user1_id === currentUser.id && chat.deleted_by_user1) ||
+                                      (chat.user2_id === currentUser.id && chat.deleted_by_user2);
+                return !isDeletedByMe;
+            });
             renderChatList();
         }
         
@@ -273,17 +276,67 @@
                 return;
             }
             let html = '';
-            chatsList.forEach(chat => {
+            for (const chat of chatsList) {
                 const other = chat.user1_id === currentUser.id ? chat.user2 : chat.user1;
-                html += `<div class="chat-item p-3 rounded-2xl cursor-pointer transition ${activeChat?.id===chat.id ? 'bg-gray-300 dark:bg-gray-800' : 'hover:bg-gray-200 dark:hover:bg-gray-900'}" data-chat-id="${chat.id}" data-other-id="${other.id}" data-other-nickname="${other.nickname}">
-                    <div class="font-medium">${other.nickname}</div>
+                const isOtherDeleted = (chat.user1_id === currentUser.id && chat.deleted_by_user2) ||
+                                       (chat.user2_id === currentUser.id && chat.deleted_by_user1);
+                const statusText = other.is_online ? '🟢 в сети' : `⚫ был(а) ${formatLastSeen(other.last_seen)}`;
+                html += `<div class="chat-item p-3 rounded-2xl cursor-pointer transition ${activeChat?.id===chat.id ? 'bg-gray-300 dark:bg-gray-800' : 'hover:bg-gray-200 dark:hover:bg-gray-900'}" data-chat-id="${chat.id}" data-other-id="${other.id}" data-other-nickname="${other.nickname}" data-other-deleted="${isOtherDeleted}">
+                    <div class="flex justify-between items-center">
+                        <div class="font-medium">${escapeHtml(other.nickname)}</div>
+                        <button class="delete-chat-btn text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 p-1 rounded-full" data-chat-id="${chat.id}" title="Удалить чат">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                        </button>
+                    </div>
+                    <div class="text-xs opacity-70 chat-status">${statusText}</div>
                 </div>`;
-            });
+            }
             chatListDiv.innerHTML = html;
-            chatListDiv.querySelectorAll('.chat-item').forEach(el => el.addEventListener('click', ()=>{
-                selectChat(parseInt(el.dataset.chatId), el.dataset.otherId, el.dataset.otherNickname);
-                if (window.innerWidth < 1024) toggleSidebar(false);
-            }));
+            
+            // Обработчики кликов по чатам
+            document.querySelectorAll('.chat-item').forEach(el => {
+                el.addEventListener('click', (e) => {
+                    if (e.target.closest('.delete-chat-btn')) return;
+                    selectChat(parseInt(el.dataset.chatId), el.dataset.otherId, el.dataset.otherNickname, el.dataset.otherDeleted === 'true');
+                    if (window.innerWidth < 1024) toggleSidebar(false);
+                });
+                const delBtn = el.querySelector('.delete-chat-btn');
+                if (delBtn) delBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    deleteChat(parseInt(delBtn.dataset.chatId));
+                });
+            });
+        }
+        
+        async function deleteChat(chatId) {
+            if (!confirm('Удалить этот чат? История будет скрыта. Если собеседник не удалил чат, вы сможете восстановить его позже.')) return;
+            const chat = chatsList.find(c => c.id === chatId);
+            if (!chat) return;
+            
+            const updates = {};
+            if (chat.user1_id === currentUser.id) updates.deleted_by_user1 = true;
+            else updates.deleted_by_user2 = true;
+            
+            // Если оба удалили – полностью удаляем запись чата (и всё связанное каскадно)
+            const otherDeleted = (chat.user1_id === currentUser.id) ? chat.deleted_by_user2 : chat.deleted_by_user1;
+            if (otherDeleted) {
+                await supabase.from('chats').delete().eq('id', chatId);
+            } else {
+                await supabase.from('chats').update(updates).eq('id', chatId);
+            }
+            
+            if (activeChat && activeChat.id === chatId) {
+                // Закрываем текущий чат
+                if (realtimeChannel) supabase.removeChannel(realtimeChannel);
+                activeChat = null;
+                activeChatName.textContent = '';
+                chatStatus.textContent = '';
+                messagesContainer.innerHTML = '<div id="no-chat-message" class="h-full flex items-center justify-center opacity-50">Выберите чат</div>';
+                messageInput.disabled = true;
+                sendBtn.disabled = true;
+                deleteChatBtn.classList.add('hidden');
+            }
+            await loadChats();
         }
         
         async function createChat(username) {
@@ -293,12 +346,37 @@
                 if (profile.id === currentUser.id) throw new Error('Нельзя с собой');
                 const u1 = currentUser.id < profile.id ? currentUser.id : profile.id;
                 const u2 = currentUser.id < profile.id ? profile.id : currentUser.id;
-                const { data: exist } = await supabase.from('chats').select('id').eq('user1_id', u1).eq('user2_id', u2).maybeSingle();
-                if (exist) {
-                    selectChat(exist.id, profile.id, profile.nickname);
+                
+                // Ищем существующий чат (включая удалённые)
+                let { data: existing } = await supabase.from('chats')
+                    .select('*')
+                    .eq('user1_id', u1).eq('user2_id', u2)
+                    .maybeSingle();
+                
+                if (existing) {
+                    const meDeleted = (existing.user1_id === currentUser.id && existing.deleted_by_user1) ||
+                                      (existing.user2_id === currentUser.id && existing.deleted_by_user2);
+                    const otherDeleted = (existing.user1_id === currentUser.id && existing.deleted_by_user2) ||
+                                         (existing.user2_id === currentUser.id && existing.deleted_by_user1);
+                    
+                    if (meDeleted && otherDeleted) {
+                        // Оба удалили – создаём новый пустой чат
+                        const { data: newChat } = await supabase.from('chats').insert({ user1_id: u1, user2_id: u2 }).select().single();
+                        selectChat(newChat.id, profile.id, profile.nickname, false);
+                    } else if (meDeleted) {
+                        // Только я удалил – восстанавливаем
+                        const updates = {};
+                        if (existing.user1_id === currentUser.id) updates.deleted_by_user1 = false;
+                        else updates.deleted_by_user2 = false;
+                        await supabase.from('chats').update(updates).eq('id', existing.id);
+                        selectChat(existing.id, profile.id, profile.nickname, otherDeleted);
+                    } else {
+                        // Чат уже существует и активен
+                        selectChat(existing.id, profile.id, profile.nickname, otherDeleted);
+                    }
                 } else {
                     const { data: newChat } = await supabase.from('chats').insert({ user1_id: u1, user2_id: u2 }).select().single();
-                    selectChat(newChat.id, profile.id, profile.nickname);
+                    selectChat(newChat.id, profile.id, profile.nickname, false);
                 }
                 document.getElementById('new-chat-input').value = '';
             } catch(e) { displayError('Ошибка создания', e); }
@@ -310,19 +388,105 @@
             if (val) createChat(val);
         });
         
-        async function selectChat(chatId, otherId, otherNickname) {
+        async function selectChat(chatId, otherId, otherNickname, isOtherDeleted) {
             if (realtimeChannel) { supabase.removeChannel(realtimeChannel); realtimeChannel = null; }
-            activeChat = { id: chatId, otherUserId: otherId, otherUserNickname: otherNickname };
+            if (typingChannel) { supabase.removeChannel(typingChannel); typingChannel = null; }
+            
+            activeChat = { id: chatId, otherUserId: otherId, otherUserNickname: otherNickname, otherDeleted: isOtherDeleted };
             activeChatName.textContent = otherNickname;
+            deleteChatBtn.classList.remove('hidden');
+            
+            // Статус собеседника
+            const status = await getUserStatus(otherId);
+            chatStatus.textContent = status;
+            if (isOtherDeleted) {
+                chatStatus.textContent = '⚠️ Собеседник завершил чат (только чтение)';
+                messageInput.disabled = true;
+                sendBtn.disabled = true;
+            } else {
+                messageInput.disabled = false;
+                sendBtn.disabled = false;
+            }
+            
             noChatMsg.style.display = 'none';
-            messageInput.disabled = false;
-            sendBtn.disabled = false;
             renderChatList();
             await loadMessages(chatId);
             setupMessagesRealtime(chatId);
+            setupTypingRealtime(chatId);
             messageInput.focus();
         }
         
+        // ---------- Удаление сообщений ----------
+        async function deleteMessage(messageId) {
+            if (!activeChat) return;
+            // Проверяем, что пользователь участник чата (уже есть activeChat)
+            const { error } = await supabase.from('messages').delete().eq('id', messageId);
+            if (error) displayError('Ошибка удаления', error);
+        }
+        
+        // ---------- Realtime (сообщения, файлы, удаление) ----------
+        function setupMessagesRealtime(chatId) {
+            realtimeChannel = supabase.channel(`chat-${chatId}`)
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `chat_id=eq.${chatId}` }, async (payload) => {
+                    const msg = payload.new;
+                    // Проверка на временное сообщение
+                    const tempEntry = [...pendingMessages.entries()].find(([k, v]) => v.content === msg.content && v.senderId === msg.sender_id);
+                    if (tempEntry) {
+                        const [tempId] = tempEntry;
+                        const tempEl = document.querySelector(`[data-message-id="${tempId}"]`);
+                        if (tempEl) {
+                            const { data: sender } = await supabase.from('profiles').select('nickname').eq('id', msg.sender_id).single();
+                            const newEl = createMessageElement({...msg, sender});
+                            tempEl.replaceWith(newEl);
+                            pendingMessages.delete(tempId);
+                            scrollToBottom();
+                            return;
+                        }
+                    }
+                    const { data: sender } = await supabase.from('profiles').select('nickname').eq('id', msg.sender_id).single();
+                    const newEl = createMessageElement({...msg, sender});
+                    newEl.classList.add('message-animate');
+                    messagesContainer.appendChild(newEl);
+                    scrollToBottom();
+                    // Уведомление
+                    if (msg.sender_id !== currentUser.id) {
+                        showNotification(`Новое сообщение от ${sender.nickname}`, msg.content, `chat-${chatId}`);
+                    }
+                    // Обновляем список чатов (поднятие вверх)
+                    loadChats();
+                })
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'files', filter: `chat_id=eq.${chatId}` }, (payload) => {
+                    const newEl = createFileElement(payload.new);
+                    newEl.classList.add('message-animate');
+                    messagesContainer.appendChild(newEl);
+                    scrollToBottom();
+                    loadChats();
+                })
+                .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages' }, (payload) => {
+                    const deletedId = payload.old.id;
+                    const msgElement = document.querySelector(`[data-message-id="${deletedId}"]`);
+                    if (msgElement) msgElement.remove();
+                })
+                .subscribe();
+        }
+        
+        function setupTypingRealtime(chatId) {
+            typingChannel = supabase.channel(`typing-${chatId}`);
+            typingChannel.on('broadcast', { event: 'typing' }, (payload) => {
+                if (payload.payload.userId !== currentUser.id) {
+                    typingStatusDiv.innerHTML = '✏️ собеседник печатает...';
+                    clearTimeout(typingTimeout);
+                    typingTimeout = setTimeout(() => { typingStatusDiv.innerHTML = ''; }, 3000);
+                }
+            }).subscribe();
+        }
+        
+        async function sendTypingEvent() {
+            if (!activeChat || !typingChannel) return;
+            await typingChannel.send({ type: 'broadcast', event: 'typing', payload: { userId: currentUser.id } });
+        }
+        
+        // ---------- Отрисовка сообщений и файлов ----------
         async function loadMessages(chatId) {
             messagesContainer.innerHTML = '<div class="text-center opacity-50 py-10">Загрузка...</div>';
             const [msgRes, fileRes] = await Promise.all([
@@ -353,22 +517,24 @@
             scrollToBottom();
         }
         
-        function scrollToBottom() {
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
-        }
-        
         function createMessageElement(msg) {
             const isOwn = msg.sender_id === currentUser.id;
             const time = new Date(msg.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
             const div = document.createElement('div');
-            div.className = `flex ${isOwn ? 'justify-end' : 'justify-start'}`;
+            div.className = `flex ${isOwn ? 'justify-end' : 'justify-start'} group`;
             div.dataset.messageId = msg.id;
-            div.dataset.content = msg.content;
-            div.dataset.senderId = msg.sender_id;
-            div.innerHTML = `<div class="max-w-[80%]">
+            div.innerHTML = `<div class="max-w-[80%] relative">
                 <div class="text-xs opacity-50 mb-1 ${isOwn?'text-right':''}">${msg.sender.nickname} • ${time}</div>
                 <div class="rounded-3xl px-5 py-3 ${isOwn ? 'bg-black dark:bg-white text-white dark:text-black' : 'bg-gray-200 dark:bg-gray-800'}">${escapeHtml(msg.content)}</div>
+                <button class="delete-msg-btn absolute top-0 ${isOwn ? '-left-8' : '-right-8'} opacity-0 group-hover:opacity-100 transition text-red-500 hover:bg-gray-200 dark:hover:bg-gray-800 p-1 rounded-full" data-msg-id="${msg.id}" title="Удалить сообщение">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                </button>
             </div>`;
+            const delBtn = div.querySelector('.delete-msg-btn');
+            if (delBtn) delBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (confirm('Удалить сообщение?')) deleteMessage(msg.id);
+            });
             return div;
         }
         
@@ -376,11 +542,10 @@
             const isOwn = file.uploaded_by === currentUser.id;
             const time = new Date(file.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
             const div = document.createElement('div');
-            div.className = `flex ${isOwn ? 'justify-end' : 'justify-start'}`;
+            div.className = `flex ${isOwn ? 'justify-end' : 'justify-start'} group`;
             div.dataset.fileId = file.id;
-            
             const innerDiv = document.createElement('div');
-            innerDiv.className = `max-w-[80%]`;
+            innerDiv.className = `max-w-[80%] relative`;
             innerDiv.innerHTML = `<div class="text-xs opacity-50 mb-1 ${isOwn?'text-right':''}">${isOwn?'Вы':activeChat.otherUserNickname} • ${time}</div>
                 <div class="rounded-3xl px-5 py-3 ${isOwn ? 'bg-black dark:bg-white text-white dark:text-black' : 'bg-gray-200 dark:bg-gray-800'}">
                     <div class="flex items-center gap-3">
@@ -388,47 +553,49 @@
                         <div class="flex-1"><div class="h-4 bg-gray-400/20 rounded w-3/4"></div></div>
                     </div>
                     <div class="text-xs opacity-70 mt-1">${file.filename}</div>
-                </div>`;
+                </div>
+                <button class="delete-msg-btn absolute top-0 ${isOwn ? '-left-8' : '-right-8'} opacity-0 group-hover:opacity-100 transition text-red-500 hover:bg-gray-200 dark:hover:bg-gray-800 p-1 rounded-full" data-file-id="${file.id}" title="Удалить файл">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                </button>`;
             div.appendChild(innerDiv);
+            
+            const delBtn = innerDiv.querySelector('.delete-msg-btn');
+            if (delBtn) delBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (confirm('Удалить файл?')) deleteFile(file.id);
+            });
             
             supabase.storage.from('chat-files').createSignedUrl(file.storage_path, 3600).then(({ data }) => {
                 const signedUrl = data?.signedUrl || '#';
                 let mediaHtml = '';
                 if (file.is_image) {
-                    mediaHtml = `<img src="${signedUrl}" class="max-w-full rounded-2xl mt-1 cursor-pointer" style="max-height:250px" data-file-id="${file.id}" data-storage-path="${file.storage_path}" data-filename="${file.filename}">`;
+                    mediaHtml = `<img src="${signedUrl}" class="max-w-full rounded-2xl mt-1 cursor-pointer" style="max-height:250px">`;
                 } else if (file.mime_type?.startsWith('video/')) {
-                    mediaHtml = `<video controls class="max-w-full rounded-2xl mt-1" style="max-height:250px" data-file-id="${file.id}" data-storage-path="${file.storage_path}" data-filename="${file.filename}"><source src="${signedUrl}"></video>`;
+                    mediaHtml = `<video controls class="max-w-full rounded-2xl mt-1" style="max-height:250px"><source src="${signedUrl}"></video>`;
                 } else if (file.mime_type?.startsWith('audio/')) {
-                    mediaHtml = `<audio controls class="w-full mt-1" data-file-id="${file.id}" data-storage-path="${file.storage_path}" data-filename="${file.filename}"><source src="${signedUrl}"></audio>`;
+                    mediaHtml = `<audio controls class="w-full mt-1"><source src="${signedUrl}"></audio>`;
                 } else {
                     mediaHtml = `<div class="flex items-center gap-3">
                         <svg class="w-6 h-6 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                         <div class="flex-1"><div class="font-medium">${file.filename}</div><div class="text-xs opacity-50">${(file.size/1024).toFixed(0)}KB</div></div>
-                        <button class="download-btn bg-black dark:bg-white text-white dark:text-black px-3 py-1 rounded-full text-sm" data-file-id="${file.id}" data-storage-path="${file.storage_path}" data-filename="${file.filename}">Скачать</button>
+                        <button class="download-file-btn bg-black dark:bg-white text-white dark:text-black px-3 py-1 rounded-full text-sm">Скачать</button>
                     </div>`;
                 }
+                const contentDiv = innerDiv.querySelector('.rounded-3xl');
+                contentDiv.innerHTML = mediaHtml + `<div class="text-xs opacity-70 mt-1">${file.filename}</div>`;
                 
-                innerDiv.querySelector('.rounded-3xl').innerHTML = mediaHtml + `<div class="text-xs opacity-70 mt-1">${file.filename}</div>`;
-                
-                innerDiv.querySelector('img')?.addEventListener('click', (e) => {
-                    const img = e.currentTarget;
-                    window.open(img.src, '_blank');
-                    markFileAsViewed(file.id, file.storage_path, file.filename);
-                });
-                
-                innerDiv.querySelector('video, audio')?.addEventListener('play', () => {
-                    markFileAsViewed(file.id, file.storage_path, file.filename);
-                }, { once: true });
-                
-                innerDiv.querySelector('.download-btn')?.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    downloadAndMarkViewed(file.id, file.storage_path, file.filename);
-                });
-                
+                contentDiv.querySelector('img')?.addEventListener('click', (e) => { window.open(e.currentTarget.src, '_blank'); markFileAsViewed(file.id, file.storage_path, file.filename); });
+                contentDiv.querySelector('video, audio')?.addEventListener('play', () => markFileAsViewed(file.id, file.storage_path, file.filename), { once: true });
+                contentDiv.querySelector('.download-file-btn')?.addEventListener('click', (e) => { e.stopPropagation(); downloadAndMarkViewed(file.id, file.storage_path, file.filename); });
                 scrollToBottom();
             }).catch(e => {});
-            
             return div;
+        }
+        
+        async function deleteFile(fileId) {
+            if (!activeChat) return;
+            const { error } = await supabase.from('files').delete().eq('id', fileId);
+            if (error) displayError('Ошибка удаления файла', error);
         }
         
         async function markFileAsViewed(fileId, storagePath, filename) {
@@ -436,10 +603,7 @@
                 let blob = await db?.get('files', storagePath);
                 if (!blob) {
                     const { data, error } = await supabase.storage.from('chat-files').download(storagePath);
-                    if (!error) {
-                        blob = data;
-                        await db?.put('files', blob, storagePath);
-                    }
+                    if (!error) { blob = data; await db?.put('files', blob, storagePath); }
                 }
                 await supabase.from('file_views').insert({ file_id: fileId, user_id: currentUser.id });
             } catch(e) {}
@@ -451,58 +615,23 @@
                 if (!blob) {
                     const { data, error } = await supabase.storage.from('chat-files').download(storagePath);
                     if (error) throw error;
-                    blob = data;
-                    await db?.put('files', blob, storagePath);
+                    blob = data; await db?.put('files', blob, storagePath);
                 }
                 await supabase.from('file_views').insert({ file_id: fileId, user_id: currentUser.id });
-                
                 const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = filename;
-                a.click();
+                const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
                 URL.revokeObjectURL(url);
             } catch(e) { alert('Ошибка скачивания'); }
         }
         
-        function setupMessagesRealtime(chatId) {
-            realtimeChannel = supabase.channel(`chat-${chatId}`)
-                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `chat_id=eq.${chatId}` }, async (payload) => {
-                    const msg = payload.new;
-                    const tempEntry = [...pendingMessages.entries()].find(([k, v]) => v.content === msg.content && v.senderId === msg.sender_id);
-                    if (tempEntry) {
-                        const [tempId] = tempEntry;
-                        const tempEl = document.querySelector(`[data-message-id="${tempId}"]`);
-                        if (tempEl) {
-                            const newEl = createMessageElement({...msg, sender: {nickname: currentProfile.nickname}});
-                            tempEl.replaceWith(newEl);
-                            pendingMessages.delete(tempId);
-                            scrollToBottom();
-                            return;
-                        }
-                    }
-                    
-                    const { data: sender } = await supabase.from('profiles').select('nickname').eq('id', msg.sender_id).single();
-                    const newEl = createMessageElement({...msg, sender});
-                    newEl.classList.add('message-animate');
-                    messagesContainer.appendChild(newEl);
-                    scrollToBottom();
-                })
-                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'files', filter: `chat_id=eq.${chatId}` }, (payload) => {
-                    const newEl = createFileElement(payload.new);
-                    newEl.classList.add('message-animate');
-                    messagesContainer.appendChild(newEl);
-                    scrollToBottom();
-                })
-                .subscribe();
-        }
+        function scrollToBottom() { messagesContainer.scrollTop = messagesContainer.scrollHeight; }
         
+        // ---------- Отправка сообщений ----------
         document.getElementById('send-message-form').addEventListener('submit', async (e)=>{
             e.preventDefault();
             const content = messageInput.value.trim();
-            if (!content || !activeChat) return;
+            if (!content || !activeChat || activeChat.otherDeleted) return;
             messageInput.value = '';
-            
             const tempId = 'temp_'+Date.now();
             const tempMsg = { id: tempId, content, created_at: new Date().toISOString(), sender_id: currentUser.id, sender: { nickname: currentProfile.nickname } };
             const tempEl = createMessageElement(tempMsg);
@@ -513,15 +642,15 @@
             
             const { error } = await supabase.from('messages').insert({ chat_id: activeChat.id, sender_id: currentUser.id, content });
             if (error) {
-                tempEl.remove();
-                pendingMessages.delete(tempId);
-                displayError('Ошибка отправки', error);
+                tempEl.remove(); pendingMessages.delete(tempId); displayError('Ошибка отправки', error);
+            } else {
+                loadChats(); // поднимаем чат вверх
             }
         });
         
         fileUpload.addEventListener('change', async (e)=>{
             const file = e.target.files[0];
-            if (!file) return;
+            if (!file || !activeChat || activeChat.otherDeleted) return;
             uploadStatus.classList.remove('hidden');
             uploadStatus.textContent = `Загрузка ${file.name}...`;
             try {
@@ -533,23 +662,108 @@
                 const path = `${activeChat.id}/${currentUser.id}_${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g,'_')}`;
                 const { error: upErr } = await supabase.storage.from('chat-files').upload(path, processed);
                 if (upErr) throw upErr;
-                
                 await db?.put('files', processed, path);
-                
-                const { data: fileData } = await supabase.from('files').insert({
+                await supabase.from('files').insert({
                     chat_id: activeChat.id, uploaded_by: currentUser.id, storage_path: path,
                     filename: file.name, size: processed.size, mime_type: processed.type, is_image: processed.type.startsWith('image/')
-                }).select().single();
-                
-                const newEl = createFileElement(fileData);
-                newEl.classList.add('message-animate');
-                messagesContainer.appendChild(newEl);
-                scrollToBottom();
+                });
                 uploadStatus.textContent = 'Отправлено';
                 setTimeout(()=> uploadStatus.classList.add('hidden'), 2000);
+                loadChats(); // поднимаем чат
             } catch(e) { uploadStatus.textContent = 'Ошибка'; }
             finally { fileUpload.value = ''; }
         });
+        
+        // ---------- Печать ----------
+        messageInput.addEventListener('input', () => {
+            if (activeChat && !activeChat.otherDeleted) sendTypingEvent();
+        });
+        
+        // ---------- Аутентификация ----------
+        async function checkSession() {
+            authTitle.textContent = 'Загрузка...';
+            authLoading.classList.remove('hidden');
+            authForm.classList.add('hidden');
+            try {
+                const { data: { session } } = await supabase.auth.getSession();
+                if (session?.user) {
+                    currentUser = session.user;
+                    await loadProfile(currentUser.id);
+                    startOnlineHeartbeat();
+                    requestNotificationPermission();
+                    showApp();
+                } else { showAuthForm(); }
+            } catch (e) { displayError('Ошибка', e); showAuthForm(); }
+        }
+        
+        async function loadProfile(userId) {
+            const { data } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+            if (!data) throw new Error('Профиль не найден');
+            currentProfile = data;
+            userNicknameDisplay.textContent = data.nickname;
+        }
+        
+        function showAuthForm() {
+            authLoading.classList.add('hidden');
+            authForm.classList.remove('hidden');
+            authTitle.textContent = isLoginMode ? 'Вход' : 'Регистрация';
+            document.getElementById('auth-submit-btn').textContent = isLoginMode ? 'Войти' : 'Зарегистрироваться';
+            document.getElementById('switch-auth-mode').textContent = isLoginMode ? '↻ Регистрация' : '↻ Войти';
+            clearError();
+        }
+        
+        function showApp() {
+            authModal.classList.add('hidden');
+            document.getElementById('logout-btn').classList.remove('hidden');
+            setupChatsRealtime();
+            loadChats();
+        }
+        
+        document.getElementById('switch-auth-mode').addEventListener('click', ()=>{ isLoginMode = !isLoginMode; showAuthForm(); });
+        
+        authForm.addEventListener('submit', async (e)=>{
+            e.preventDefault(); clearError();
+            const nickname = document.getElementById('auth-nickname').value.trim();
+            const password = document.getElementById('auth-password').value;
+            try {
+                if (isLoginMode) {
+                    const { data: profile } = await supabase.from('profiles').select('id').eq('nickname', nickname).maybeSingle();
+                    if (!profile) throw new Error('Пользователь не найден');
+                    const { data, error } = await supabase.auth.signInWithPassword({ email: `${nickname}@temp.mail`, password });
+                    if (error) throw error;
+                    currentUser = data.user; await loadProfile(currentUser.id); showApp();
+                } else {
+                    const email = `${nickname}@temp.mail`;
+                    const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { nickname } } });
+                    if (error) throw error;
+                    await new Promise(r=>setTimeout(r,1000));
+                    const { error: loginErr } = await supabase.auth.signInWithPassword({ email, password });
+                    if (loginErr) throw loginErr;
+                    currentUser = data.user; await loadProfile(data.user.id); showApp();
+                }
+            } catch(e) { displayError('Ошибка', e); }
+        });
+        
+        document.getElementById('logout-btn').addEventListener('click', async ()=>{
+            if (chatsChannel) supabase.removeChannel(chatsChannel);
+            await supabase.auth.signOut(); location.reload();
+        });
+        
+        function setupChatsRealtime() {
+            if (chatsChannel) supabase.removeChannel(chatsChannel);
+            chatsChannel = supabase.channel('chats-list')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'chats' }, (payload) => {
+                    if (payload.eventType === 'DELETE') {
+                        if (activeChat && activeChat.id === payload.old.id) {
+                            activeChat = null;
+                            messagesContainer.innerHTML = '<div id="no-chat-message" class="h-full flex items-center justify-center opacity-50">Чат удалён</div>';
+                            messageInput.disabled = true; sendBtn.disabled = true;
+                        }
+                    }
+                    loadChats();
+                })
+                .subscribe();
+        }
         
         function escapeHtml(t) { const d=document.createElement('div'); d.textContent=t; return d.innerHTML; }
         
