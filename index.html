@@ -164,7 +164,7 @@
     </div>
 </div>
 
-<!-- Контекстное меню (будет создаваться динамически) -->
+<!-- Контекстное меню -->
 <div id="context-menu" class="context-menu hidden"></div>
 
 <script>
@@ -174,11 +174,11 @@
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         
         let currentUser = null, currentProfile = null, activeChat = null, chatsList = [];
-        let realtimeChannel = null, chatsChannel = null, presenceChannel = null;
+        let realtimeChannel = null, chatsChannel = null, presenceChannel = null, typingBroadcastChannel = null;
         let isLoginMode = false, db, theme = localStorage.getItem('theme') || 'dark';
         let pendingMessages = new Map();
         let typingTimeouts = new Map();
-        let userStatuses = new Map(); // userId -> { isOnline, lastSeen, typingInChat: Set() }
+        let userStatuses = new Map();
         let notificationsEnabled = false;
         let windowFocused = true;
         
@@ -204,8 +204,6 @@
         const chatEndedBanner = document.getElementById('chat-ended-banner');
         const deleteEndedChatBtn = document.getElementById('delete-ended-chat-btn');
         const contextMenu = document.getElementById('context-menu');
-        
-        let currentContextTarget = null;
         
         // Инициализация IndexedDB
         async function initDB() { db = await idb.openDB('chat-cache', 1, { upgrade(db){ db.createObjectStore('files'); }}); }
@@ -285,25 +283,23 @@
                     status.isOnline = false;
                     userStatuses.set(userId, status);
                     updateAllStatusDisplays();
-                    // Обновим last_seen в БД через RPC (если функция существует)
-                    supabase.rpc('update_online_status', { p_user_id: userId, p_is_online: false }).catch(()=>{});
+                    supabase.rpc('update_online_status', { p_user_id: userId, p_is_online: false });
                 })
                 .subscribe(async (status) => {
                     if (status === 'SUBSCRIBED') {
                         await presenceChannel.track({ user_id: currentUser.id, online_at: new Date().toISOString() });
-                        await supabase.rpc('update_online_status', { p_user_id: currentUser.id, p_is_online: true }).catch(()=>{});
+                        await supabase.rpc('update_online_status', { p_user_id: currentUser.id, p_is_online: true });
                     }
                 });
                 
             setInterval(() => {
                 if (currentUser) {
-                    supabase.rpc('update_online_status', { p_user_id: currentUser.id, p_is_online: true }).catch(()=>{});
+                    supabase.rpc('update_online_status', { p_user_id: currentUser.id, p_is_online: true });
                 }
             }, 60000);
         }
         
         // Печатание
-        let typingBroadcastChannel = null;
         function setupTypingBroadcast() {
             typingBroadcastChannel = supabase.channel('typing-indicator');
             typingBroadcastChannel
@@ -460,9 +456,7 @@
                     const chat = payload.new;
                     if (chat.user1_id === currentUser.id || chat.user2_id === currentUser.id) loadChats();
                 })
-                .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chats' }, (payload) => {
-                    loadChats();
-                })
+                .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chats' }, () => loadChats())
                 .subscribe();
         }
         
@@ -470,11 +464,10 @@
             chatListDiv.innerHTML = '<div class="text-center opacity-50 py-10">Загрузка...</div>';
             const { data, error } = await supabase
                 .from('chats')
-                .select(`id, user1_id, user2_id, deleted_by_user1, deleted_by_user2, created_at, user1:profiles!chats_user1_id_fkey(nickname), user2:profiles!chats_user2_id_fkey(nickname)`)
+                .select(`id, user1_id, user2_id, deleted_by_user1, deleted_by_user2, last_message_at, user1:profiles!chats_user1_id_fkey(nickname), user2:profiles!chats_user2_id_fkey(nickname)`)
                 .or(`user1_id.eq.${currentUser.id},user2_id.eq.${currentUser.id}`)
-                .order('created_at', { ascending: false });
+                .order('last_message_at', { ascending: false });
             if (error) { chatListDiv.innerHTML = '<div class="text-center text-red-500 py-10">Ошибка</div>'; return; }
-            // Фильтруем: чат не должен быть удален текущим пользователем
             chatsList = (data || []).filter(chat => {
                 if (chat.user1_id === currentUser.id && chat.deleted_by_user1) return false;
                 if (chat.user2_id === currentUser.id && chat.deleted_by_user2) return false;
@@ -578,7 +571,7 @@
                     const deletedByMe = isUser1 ? existChat.deleted_by_user1 : existChat.deleted_by_user2;
                     
                     if (deletedByMe) {
-                        const update = isUser1 ? { deleted_by_user1: false } : { deleted_by_user2: false };
+                        const update = isUser1 ? { deleted_by_user1: false, last_message_at: new Date() } : { deleted_by_user2: false, last_message_at: new Date() };
                         await supabase.from('chats').update(update).eq('id', existChat.id);
                         loadChats();
                         selectChat(existChat.id, profile.id, profile.nickname);
@@ -586,7 +579,7 @@
                         selectChat(existChat.id, profile.id, profile.nickname);
                     }
                 } else {
-                    const { data: newChat } = await supabase.from('chats').insert({ user1_id: u1, user2_id: u2 }).select().single();
+                    const { data: newChat } = await supabase.from('chats').insert({ user1_id: u1, user2_id: u2, last_message_at: new Date() }).select().single();
                     loadChats();
                     selectChat(newChat.id, profile.id, profile.nickname);
                 }
@@ -728,7 +721,7 @@
         async function deleteMessage(messageId) {
             const { error } = await supabase.from('messages').update({ deleted_at: new Date() }).eq('id', messageId);
             if (!error) {
-                // Элемент будет удален через realtime
+                // Удаление обработается через realtime
             }
         }
         
@@ -851,6 +844,8 @@
                     if (msg.sender_id !== currentUser.id && activeChat) {
                         showNotification(`${sender.nickname}`, msg.content);
                     }
+                    // Обновить last_message_at
+                    await supabase.from('chats').update({ last_message_at: new Date() }).eq('id', chatId);
                     loadChats();
                 })
                 .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `chat_id=eq.${chatId}` }, (payload) => {
@@ -860,11 +855,12 @@
                         if (el) el.remove();
                     }
                 })
-                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'files', filter: `chat_id=eq.${chatId}` }, (payload) => {
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'files', filter: `chat_id=eq.${chatId}` }, async (payload) => {
                     const newEl = createFileElement(payload.new);
                     newEl.classList.add('message-animate');
                     messagesContainer.appendChild(newEl);
                     scrollToBottom();
+                    await supabase.from('chats').update({ last_message_at: new Date() }).eq('id', chatId);
                     loadChats();
                 })
                 .subscribe();
@@ -892,6 +888,7 @@
                 pendingMessages.delete(tempId);
                 displayError('Ошибка отправки', error);
             } else {
+                await supabase.from('chats').update({ last_message_at: new Date() }).eq('id', activeChat.id);
                 loadChats();
             }
         });
@@ -925,6 +922,7 @@
                 scrollToBottom();
                 uploadStatus.textContent = 'Отправлено';
                 setTimeout(()=> uploadStatus.classList.add('hidden'), 2000);
+                await supabase.from('chats').update({ last_message_at: new Date() }).eq('id', activeChat.id);
                 loadChats();
             } catch(e) { uploadStatus.textContent = 'Ошибка'; }
             finally { fileUpload.value = ''; }
