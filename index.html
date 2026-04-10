@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Minimal Chat • Удаление, статусы, уведомления</title>
+    <title>Minimal Chat • Статусы, удаление, уведомления</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/dist/browser-image-compression.js"></script>
@@ -164,7 +164,7 @@
     </div>
 </div>
 
-<!-- Контекстное меню (будет создаваться динамически) -->
+<!-- Контекстное меню (динамическое) -->
 <div id="context-menu" class="context-menu hidden"></div>
 
 <script>
@@ -174,11 +174,11 @@
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         
         let currentUser = null, currentProfile = null, activeChat = null, chatsList = [];
-        let realtimeChannel = null, chatsChannel = null, presenceChannel = null;
+        let realtimeChannel = null, chatsChannel = null, presenceChannel = null, typingBroadcastChannel = null;
         let isLoginMode = false, db, theme = localStorage.getItem('theme') || 'dark';
         let pendingMessages = new Map();
         let typingTimeouts = new Map();
-        let userStatuses = new Map(); // userId -> { isOnline, lastSeen, typingInChat: Set() }
+        let userStatuses = new Map();
         let notificationsEnabled = false;
         let windowFocused = true;
         
@@ -205,8 +205,6 @@
         const deleteEndedChatBtn = document.getElementById('delete-ended-chat-btn');
         const contextMenu = document.getElementById('context-menu');
         
-        let currentContextTarget = null;
-        
         // Инициализация IndexedDB
         async function initDB() { db = await idb.openDB('chat-cache', 1, { upgrade(db){ db.createObjectStore('files'); }}); }
         initDB();
@@ -220,7 +218,6 @@
         applyTheme(theme);
         themeToggle.addEventListener('click', () => applyTheme(theme === 'dark' ? 'light' : 'dark'));
         
-        // Ошибки
         function displayError(context, err) {
             authError.textContent = `${context}: ${err?.message || JSON.stringify(err)}`;
             authError.classList.remove('hidden');
@@ -259,7 +256,7 @@
         window.addEventListener('focus', () => windowFocused = true);
         window.addEventListener('blur', () => windowFocused = false);
         
-        // Присутствие и статусы
+        // Presence и статусы
         async function setupPresence() {
             if (presenceChannel) supabase.removeChannel(presenceChannel);
             
@@ -270,7 +267,6 @@
             presenceChannel
                 .on('presence', { event: 'sync' }, () => {
                     const state = presenceChannel.presenceState();
-                    // Обновляем статусы всех пользователей
                     Object.values(state).flat().forEach(p => {
                         userStatuses.set(p.user_id, {
                             isOnline: true,
@@ -281,24 +277,20 @@
                     updateAllStatusDisplays();
                 })
                 .on('presence', { event: 'leave' }, ({ key }) => {
-                    // Пользователь ушел офлайн
                     const userId = key;
                     const status = userStatuses.get(userId) || { isOnline: false, typingInChat: new Set() };
                     status.isOnline = false;
                     userStatuses.set(userId, status);
                     updateAllStatusDisplays();
-                    // Обновим last_seen в БД через RPC
                     supabase.rpc('update_online_status', { p_user_id: userId, p_is_online: false });
                 })
                 .subscribe(async (status) => {
                     if (status === 'SUBSCRIBED') {
                         await presenceChannel.track({ user_id: currentUser.id, online_at: new Date().toISOString() });
-                        // Обновим свой статус в БД
                         await supabase.rpc('update_online_status', { p_user_id: currentUser.id, p_is_online: true });
                     }
                 });
                 
-            // Периодическое обновление last_seen
             setInterval(() => {
                 if (currentUser) {
                     supabase.rpc('update_online_status', { p_user_id: currentUser.id, p_is_online: true });
@@ -307,7 +299,6 @@
         }
         
         // Печатание
-        let typingBroadcastChannel = null;
         function setupTypingBroadcast() {
             typingBroadcastChannel = supabase.channel('typing-indicator');
             typingBroadcastChannel
@@ -318,7 +309,6 @@
                     const status = userStatuses.get(userId) || { isOnline: false, typingInChat: new Set() };
                     if (isTyping) {
                         status.typingInChat.add(chatId);
-                        // Автосброс через 3 сек
                         clearTimeout(typingTimeouts.get(userId+chatId));
                         typingTimeouts.set(userId+chatId, setTimeout(() => {
                             const s = userStatuses.get(userId);
@@ -352,9 +342,7 @@
         });
         
         function updateAllStatusDisplays() {
-            // Обновляем список чатов
             renderChatList();
-            // Обновляем статус в активном чате
             if (activeChat) {
                 const otherStatus = userStatuses.get(activeChat.otherUserId);
                 updateActiveChatStatus(otherStatus);
@@ -459,7 +447,7 @@
             location.reload();
         });
         
-        // Чаты реальное время
+        // Чаты realtime
         function setupChatsRealtime() {
             if (chatsChannel) supabase.removeChannel(chatsChannel);
             chatsChannel = supabase.channel('chats-list')
@@ -467,10 +455,7 @@
                     const chat = payload.new;
                     if (chat.user1_id === currentUser.id || chat.user2_id === currentUser.id) loadChats();
                 })
-                .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chats' }, (payload) => {
-                    // Могли измениться флаги удаления или last_message_at
-                    loadChats();
-                })
+                .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chats' }, () => loadChats())
                 .subscribe();
         }
         
@@ -482,7 +467,6 @@
                 .or(`user1_id.eq.${currentUser.id},user2_id.eq.${currentUser.id}`)
                 .order('last_message_at', { ascending: false });
             if (error) { chatListDiv.innerHTML = '<div class="text-center text-red-500 py-10">Ошибка</div>'; return; }
-            // Фильтруем: чат не должен быть удален текущим пользователем
             chatsList = (data || []).filter(chat => {
                 if (chat.user1_id === currentUser.id && chat.deleted_by_user1) return false;
                 if (chat.user2_id === currentUser.id && chat.deleted_by_user2) return false;
@@ -523,7 +507,6 @@
             });
             chatListDiv.innerHTML = html;
             
-            // Обработчики кликов
             chatListDiv.querySelectorAll('.chat-item').forEach(el => {
                 el.addEventListener('click', (e) => {
                     if (e.target.closest('[data-action="delete-chat"]')) return;
@@ -575,7 +558,6 @@
                 const u1 = currentUser.id < profile.id ? currentUser.id : profile.id;
                 const u2 = currentUser.id < profile.id ? profile.id : currentUser.id;
                 
-                // Проверим существующий чат
                 const { data: existChat } = await supabase
                     .from('chats')
                     .select('id, deleted_by_user1, deleted_by_user2')
@@ -588,17 +570,14 @@
                     const deletedByMe = isUser1 ? existChat.deleted_by_user1 : existChat.deleted_by_user2;
                     
                     if (deletedByMe) {
-                        // Восстанавливаем чат
                         const update = isUser1 ? { deleted_by_user1: false, last_message_at: new Date() } : { deleted_by_user2: false, last_message_at: new Date() };
                         await supabase.from('chats').update(update).eq('id', existChat.id);
                         loadChats();
                         selectChat(existChat.id, profile.id, profile.nickname);
                     } else {
-                        // Чат активен
                         selectChat(existChat.id, profile.id, profile.nickname);
                     }
                 } else {
-                    // Создаем новый
                     const { data: newChat } = await supabase.from('chats').insert({ user1_id: u1, user2_id: u2 }).select().single();
                     loadChats();
                     selectChat(newChat.id, profile.id, profile.nickname);
@@ -616,10 +595,6 @@
         async function selectChat(chatId, otherId, otherNickname) {
             if (realtimeChannel) { supabase.removeChannel(realtimeChannel); realtimeChannel = null; }
             
-            // Проверим, не удалил ли другой участник чат
-            const { data: chatData } = await supabase.from('chats').select('deleted_by_user1, deleted_by_user2').eq('id', chatId).single();
-            const isUser1 = chatData.user1_id === currentUser.id; // на самом деле нам нужен user1_id из запроса, но проще отдельно
-            // Получим полную информацию
             const { data: fullChat } = await supabase.from('chats').select('user1_id, user2_id, deleted_by_user1, deleted_by_user2').eq('id', chatId).single();
             const otherDeleted = (fullChat.user1_id === otherId && fullChat.deleted_by_user1) || (fullChat.user2_id === otherId && fullChat.deleted_by_user2);
             
@@ -710,7 +685,6 @@
                 <div class="message-bubble rounded-3xl px-5 py-3 ${isOwn ? 'bg-black dark:bg-white text-white dark:text-black' : 'bg-gray-200 dark:bg-gray-800'}">${escapeHtml(msg.content)}</div>
             </div>`;
             
-            // Контекстное меню
             div.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
                 if (msg.sender_id !== currentUser.id) return;
@@ -746,7 +720,7 @@
         async function deleteMessage(messageId) {
             const { error } = await supabase.from('messages').update({ deleted_at: new Date() }).eq('id', messageId);
             if (!error) {
-                // Элемент будет удален через realtime
+                // Удаление произойдёт через realtime
             }
         }
         
@@ -847,7 +821,6 @@
             realtimeChannel = supabase.channel(`chat-${chatId}`)
                 .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `chat_id=eq.${chatId}` }, async (payload) => {
                     const msg = payload.new;
-                    // Проверка на временное сообщение
                     const tempEntry = [...pendingMessages.entries()].find(([k, v]) => v.content === msg.content && v.senderId === msg.sender_id);
                     if (tempEntry) {
                         const [tempId] = tempEntry;
@@ -867,17 +840,14 @@
                     messagesContainer.appendChild(newEl);
                     scrollToBottom();
                     
-                    // Уведомление
                     if (msg.sender_id !== currentUser.id && activeChat) {
                         showNotification(`${sender.nickname}`, msg.content);
                     }
-                    // Обновить список чатов (поднять)
                     loadChats();
                 })
                 .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `chat_id=eq.${chatId}` }, (payload) => {
                     const msg = payload.new;
                     if (msg.deleted_at) {
-                        // Удалить элемент
                         const el = document.querySelector(`[data-message-id="${msg.id}"]`);
                         if (el) el.remove();
                     }
@@ -914,7 +884,6 @@
                 pendingMessages.delete(tempId);
                 displayError('Ошибка отправки', error);
             } else {
-                // После отправки поднимем чат
                 loadChats();
             }
         });
@@ -955,7 +924,6 @@
         
         function escapeHtml(t) { const d=document.createElement('div'); d.textContent=t; return d.innerHTML; }
         
-        // Запуск
         checkSession();
     })();
 </script>
