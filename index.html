@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Minimal Chat+</title>
+    <title>Minimal Chat — Full Featured</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/dist/browser-image-compression.js"></script>
@@ -17,63 +17,26 @@
             to { opacity: 1; transform: translateY(0); }
         }
         .message-animate { animation: fade-in-up 0.2s ease-out; }
-        .context-menu {
-            position: absolute;
-            background: white;
-            border: 1px solid #ccc;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            z-index: 100;
-            padding: 4px 0;
-            min-width: 120px;
+        /* Контекстное меню для удаления сообщения */
+        .message-actions { display: none; }
+        .message-bubble:hover .message-actions { display: block; }
+        @media (hover: none) {
+            .message-bubble:active .message-actions { display: block; }
         }
-        .dark .context-menu {
-            background: #1f1f1f;
-            border-color: #333;
-        }
-        .context-menu-item {
-            padding: 8px 16px;
-            cursor: pointer;
-            font-size: 14px;
-        }
-        .context-menu-item:hover {
-            background: #f0f0f0;
-        }
-        .dark .context-menu-item:hover {
-            background: #333;
-        }
-        .typing-indicator {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            padding: 4px 8px;
-            font-size: 12px;
-            opacity: 0.7;
-        }
-        .typing-dots span {
-            display: inline-block;
-            width: 4px;
-            height: 4px;
-            border-radius: 50%;
-            background: currentColor;
-            margin: 0 1px;
-            animation: typing 1.4s infinite;
-        }
-        .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
-        .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
-        @keyframes typing { 0%,60%,100% { opacity: 0.3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
     </style>
 </head>
 <body class="font-sans antialiased">
 
 <div id="app" class="h-screen flex overflow-hidden bg-white dark:bg-black text-black dark:text-white">
     
+    <!-- Mobile menu toggle -->
     <button id="menu-toggle" class="lg:hidden fixed top-4 left-4 z-30 p-2 rounded-full bg-gray-200 dark:bg-gray-800">
         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
         </svg>
     </button>
     
+    <!-- Sidebar -->
     <div id="sidebar" class="w-80 lg:w-96 bg-gray-100 dark:bg-gray-900 border-r border-gray-300 dark:border-gray-800 flex flex-col absolute lg:relative inset-y-0 left-0 z-20 transform transition-transform duration-300 ease-in-out lg:translate-x-0 -translate-x-full">
         <div class="p-4 border-b border-gray-300 dark:border-gray-800 flex items-center justify-between">
             <div>
@@ -88,6 +51,7 @@
             </div>
         </div>
 
+        <!-- New chat form -->
         <div class="p-3 border-b border-gray-300 dark:border-gray-800">
             <form id="add-chat-form" class="flex space-x-2">
                 <input type="text" id="new-chat-input" placeholder="Username друга" class="flex-1 bg-white dark:bg-black border border-gray-300 dark:border-gray-700 rounded-full px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400">
@@ -97,6 +61,7 @@
             </form>
         </div>
 
+        <!-- Chat list -->
         <div class="flex-1 overflow-y-auto scrollbar-hidden p-2">
             <div id="chat-list" class="space-y-1">
                 <div class="text-center opacity-50 py-10">Загрузка...</div>
@@ -104,40 +69,40 @@
         </div>
     </div>
 
+    <!-- Main chat area -->
     <div class="flex-1 flex flex-col bg-white dark:bg-black">
-        <div class="p-4 border-b border-gray-300 dark:border-gray-800 flex items-center justify-between">
-            <div class="flex items-center">
-                <button id="mobile-back-btn" class="lg:hidden mr-3 p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-800 hidden">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-                </button>
-                <div>
-                    <h3 id="active-chat-name" class="font-semibold text-lg"></h3>
-                    <div id="active-chat-status" class="text-xs opacity-60"></div>
-                </div>
-            </div>
-            <button id="delete-chat-btn" class="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-800 hidden" title="Удалить чат">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+        <div class="p-4 border-b border-gray-300 dark:border-gray-800 flex items-center">
+            <button id="mobile-back-btn" class="lg:hidden mr-3 p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-800 hidden">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
             </button>
+            <div>
+                <h3 id="active-chat-name" class="font-semibold text-lg"></h3>
+                <p id="active-chat-status" class="text-xs opacity-60"></p>
+            </div>
+            <!-- Delete chat button (visible only if chat is active and not deleted by current user) -->
+            <button id="delete-chat-btn" class="ml-auto text-sm px-3 py-1.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-800 hidden">Удалить чат</button>
         </div>
 
-        <div id="chat-banner" class="bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200 p-2 text-sm text-center hidden"></div>
+        <!-- Chat deleted banner (when other user deleted) -->
+        <div id="chat-deleted-banner" class="bg-yellow-100 dark:bg-yellow-900/20 border-b border-yellow-300 dark:border-yellow-800 p-3 text-center text-sm hidden">
+            Собеседник завершил чат. Вы можете только читать сообщения.
+            <button id="delete-chat-for-me-btn" class="ml-3 underline">Удалить для себя</button>
+        </div>
 
-        <div id="messages-container" class="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-hidden relative">
+        <!-- Messages container -->
+        <div id="messages-container" class="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-hidden">
             <div id="no-chat-message" class="h-full flex items-center justify-center opacity-50">
                 Выберите чат
             </div>
-            <div id="typing-indicator" class="typing-indicator hidden absolute bottom-4 left-4 bg-gray-200 dark:bg-gray-800 rounded-full px-3 py-1 shadow">
-                <span>печатает</span>
-                <span class="typing-dots ml-1"><span></span><span></span><span></span></span>
-            </div>
         </div>
 
+        <!-- Message input (disabled if chat deleted by other) -->
         <div class="p-4 border-t border-gray-300 dark:border-gray-800">
             <form id="send-message-form" class="flex items-center space-x-2">
                 <input type="text" id="message-input" placeholder="Сообщение..." class="flex-1 bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-full px-4 py-3 focus:outline-none focus:ring-2 focus:ring-gray-400" autocomplete="off" disabled>
                 <label for="file-upload" class="cursor-pointer p-3 rounded-full hover:bg-gray-200 dark:hover:bg-gray-800">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
-                    <input type="file" id="file-upload" class="hidden" disabled>
+                    <input type="file" id="file-upload" class="hidden">
                 </label>
                 <button type="submit" id="send-btn" class="bg-black dark:bg-white text-white dark:text-black rounded-full p-3 hover:opacity-80 transition disabled:opacity-30" disabled>
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
@@ -148,9 +113,7 @@
     </div>
 </div>
 
-<!-- Контекстное меню для сообщений -->
-<div id="context-menu" class="context-menu hidden"></div>
-
+<!-- Auth modal -->
 <div id="auth-modal" class="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
     <div class="bg-white dark:bg-gray-900 rounded-3xl shadow-xl w-full max-w-md p-6">
         <h2 id="auth-modal-title" class="text-2xl font-bold mb-6 text-center">Загрузка...</h2>
@@ -172,20 +135,28 @@
 
 <script>
     (function(){
-        // Конфигурация
+        // --- CONFIG ---
         const SUPABASE_URL = 'https://xpvdgjapfssyxnspccvv.supabase.co';
         const SUPABASE_ANON_KEY = 'sb_publishable_e7xK2IgK7D6SkTAvct70rA_uyDppjeO';
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         
-        // Состояние
-        let currentUser = null, currentProfile = null, activeChat = null, chatsList = [];
+        // --- STATE ---
+        let currentUser = null, currentProfile = null;
+        let activeChat = null;               // { id, otherUserId, otherUserNickname, isDeletedByOther }
+        let chatsList = [];
         let realtimeChannel = null, chatsChannel = null, presenceChannel = null;
-        let isLoginMode = false, db, theme = localStorage.getItem('theme') || 'dark';
+        let isLoginMode = false;
+        let theme = localStorage.getItem('theme') || 'dark';
         let pendingMessages = new Map();
-        let typingTimeout = null;
-        const onlineUsers = new Map(); // userId -> { isOnline, lastSeen }
+        let db;
+        let notificationPermission = false;
         
-        // DOM элементы
+        // Online status tracking
+        let onlineStatusTimer = null;
+        let typingTimeout = null;
+        const userStatuses = new Map();      // userId -> { isOnline, lastSeen, typing }
+        
+        // DOM elements
         const authModal = document.getElementById('auth-modal');
         const authForm = document.getElementById('auth-form');
         const authError = document.getElementById('auth-error');
@@ -206,17 +177,12 @@
         const activeChatStatus = document.getElementById('active-chat-status');
         const userNicknameDisplay = document.getElementById('user-nickname-display');
         const deleteChatBtn = document.getElementById('delete-chat-btn');
-        const chatBanner = document.getElementById('chat-banner');
-        const typingIndicator = document.getElementById('typing-indicator');
-        const contextMenu = document.getElementById('context-menu');
+        const chatDeletedBanner = document.getElementById('chat-deleted-banner');
+        const deleteChatForMeBtn = document.getElementById('delete-chat-for-me-btn');
         
-        let currentContextMessageId = null;
-        
-        // Инициализация IndexedDB
-        async function initDB() { db = await idb.openDB('chat-cache', 1, { upgrade(db){ db.createObjectStore('files'); }}); }
-        initDB();
-        
-        // Тема
+        // --- UTILS ---
+        function escapeHtml(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+        function formatTime(iso) { return new Date(iso).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); }
         function applyTheme(t) {
             theme = t;
             localStorage.setItem('theme', t);
@@ -225,14 +191,12 @@
         applyTheme(theme);
         themeToggle.addEventListener('click', () => applyTheme(theme === 'dark' ? 'light' : 'dark'));
         
-        // Ошибки
         function displayError(context, err) {
             authError.textContent = `${context}: ${err?.message || JSON.stringify(err)}`;
             authError.classList.remove('hidden');
         }
         function clearError() { authError.classList.add('hidden'); }
         
-        // Боковое меню
         function toggleSidebar(show) {
             if (show === undefined) sidebar.classList.toggle('-translate-x-full');
             else sidebar.classList.toggle('-translate-x-full', !show);
@@ -245,88 +209,140 @@
             }
         });
         
-        // Уведомления
+        // --- NOTIFICATIONS ---
         async function requestNotificationPermission() {
-            if (Notification.permission === 'default') {
-                await Notification.requestPermission();
-            }
-        }
-        function showNotification(title, body, icon) {
-            if (Notification.permission === 'granted' && document.hidden) {
-                new Notification(title, { body, icon, silent: false });
+            if (!('Notification' in window)) return;
+            if (Notification.permission === 'granted') {
+                notificationPermission = true;
+            } else if (Notification.permission !== 'denied') {
+                const perm = await Notification.requestPermission();
+                notificationPermission = perm === 'granted';
             }
         }
         
-        // Онлайн статус (Presence)
-        async function setupPresence() {
-            if (presenceChannel) supabase.removeChannel(presenceChannel);
-            presenceChannel = supabase.channel('online-users', {
+        function showNotification(title, body, icon) {
+            if (!notificationPermission || document.visibilityState === 'visible') return;
+            new Notification(title, { body, icon, silent: false });
+        }
+        
+        // --- INDEXED DB ---
+        async function initDB() { 
+            db = await idb.openDB('chat-cache', 1, { 
+                upgrade(db){ db.createObjectStore('files'); }
+            }); 
+        }
+        initDB();
+        
+        // --- ONLINE STATUS & PRESENCE ---
+        async function updateOwnOnlineStatus(isOnline) {
+            if (!currentUser) return;
+            try {
+                await supabase.rpc('update_online_status', { 
+                    p_user_id: currentUser.id, 
+                    p_is_online: isOnline 
+                });
+            } catch(e) { /* ignore */ }
+        }
+        
+        function startOnlineHeartbeat() {
+            if (onlineStatusTimer) clearInterval(onlineStatusTimer);
+            updateOwnOnlineStatus(true);
+            onlineStatusTimer = setInterval(() => updateOwnOnlineStatus(true), 30000);
+            window.addEventListener('beforeunload', () => updateOwnOnlineStatus(false));
+            document.addEventListener('visibilitychange', () => {
+                updateOwnOnlineStatus(!document.hidden);
+            });
+        }
+        
+        function setupPresence(chatId = null) {
+            if (presenceChannel) {
+                supabase.removeChannel(presenceChannel);
+                presenceChannel = null;
+            }
+            
+            const channelName = chatId ? `presence:chat:${chatId}` : `presence:global`;
+            presenceChannel = supabase.channel(channelName, {
                 config: { presence: { key: currentUser.id } }
             });
             
             presenceChannel
                 .on('presence', { event: 'sync' }, () => {
                     const state = presenceChannel.presenceState();
-                    Object.keys(state).forEach(userId => {
-                        const presences = state[userId];
-                        if (presences && presences.length > 0) {
-                            onlineUsers.set(userId, { isOnline: true, lastSeen: new Date() });
-                        } else {
-                            onlineUsers.set(userId, { isOnline: false, lastSeen: onlineUsers.get(userId)?.lastSeen || new Date() });
-                        }
+                    // Update statuses for users in this channel
+                    Object.values(state).flat().forEach(p => {
+                        const userId = p.user_id;
+                        userStatuses.set(userId, { 
+                            isOnline: true, 
+                            lastSeen: new Date(),
+                            typing: p.typing || false
+                        });
                     });
-                    updateAllChatStatuses();
+                    updateUIStatuses();
+                })
+                .on('presence', { event: 'join' }, ({ key, newPresences }) => {
+                    newPresences.forEach(p => {
+                        userStatuses.set(p.user_id, { 
+                            isOnline: true, 
+                            lastSeen: new Date(),
+                            typing: p.typing || false
+                        });
+                    });
+                    updateUIStatuses();
+                })
+                .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
+                    leftPresences.forEach(p => {
+                        const st = userStatuses.get(p.user_id) || {};
+                        st.isOnline = false;
+                        st.lastSeen = new Date();
+                        st.typing = false;
+                        userStatuses.set(p.user_id, st);
+                    });
+                    updateUIStatuses();
                 })
                 .subscribe(async (status) => {
                     if (status === 'SUBSCRIBED') {
-                        await presenceChannel.track({ online: true });
-                        // Обновляем свой статус в БД
-                        await supabase.rpc('update_online_status', { p_user_id: currentUser.id, p_is_online: true });
+                        await presenceChannel.track({ 
+                            user_id: currentUser.id, 
+                            online_at: new Date().toISOString(),
+                            typing: false 
+                        });
                     }
                 });
-            
-            // Периодическое обновление last_seen
-            setInterval(async () => {
-                if (currentUser) {
-                    await supabase.rpc('update_online_status', { p_user_id: currentUser.id, p_is_online: true });
-                }
-            }, 60000);
-            
-            // При закрытии вкладки
-            window.addEventListener('beforeunload', async () => {
-                if (currentUser) {
-                    await supabase.rpc('update_online_status', { p_user_id: currentUser.id, p_is_online: false });
-                }
+        }
+        
+        function setTypingStatus(isTyping) {
+            if (!presenceChannel || !activeChat) return;
+            presenceChannel.track({ 
+                user_id: currentUser.id, 
+                online_at: new Date().toISOString(),
+                typing: isTyping 
             });
         }
         
-        function updateAllChatStatuses() {
-            renderChatList();
+        function updateUIStatuses() {
+            // Update chat list statuses
+            document.querySelectorAll('.chat-item').forEach(el => {
+                const otherId = el.dataset.otherId;
+                if (!otherId) return;
+                const statusDiv = el.querySelector('.chat-status');
+                if (statusDiv) {
+                    const st = userStatuses.get(otherId);
+                    if (st?.typing) statusDiv.textContent = 'печатает...';
+                    else if (st?.isOnline) statusDiv.textContent = 'в сети';
+                    else statusDiv.textContent = 'не в сети';
+                }
+            });
+            
+            // Update active chat header status
             if (activeChat) {
-                const otherId = activeChat.otherUserId;
-                const onlineInfo = onlineUsers.get(otherId);
-                const isOnline = onlineInfo?.isOnline;
-                const lastSeen = onlineInfo?.lastSeen;
-                let statusText = '';
-                if (isOnline) statusText = 'в сети';
-                else if (lastSeen) statusText = `был(а) ${formatLastSeen(lastSeen)}`;
-                else statusText = 'не в сети';
-                activeChatStatus.textContent = statusText;
+                const st = userStatuses.get(activeChat.otherUserId);
+                if (st?.typing) activeChatStatus.textContent = 'печатает...';
+                else if (st?.isOnline) activeChatStatus.textContent = 'в сети';
+                else activeChatStatus.textContent = 'не в сети';
             }
         }
         
-        function formatLastSeen(date) {
-            const now = new Date();
-            const diff = now - date;
-            const minutes = Math.floor(diff / 60000);
-            if (minutes < 1) return 'только что';
-            if (minutes < 60) return `${minutes} мин назад`;
-            const hours = Math.floor(minutes / 60);
-            if (hours < 24) return `${hours} ч назад`;
-            return date.toLocaleDateString();
-        }
-        
-        // Аутентификация
+        // --- AUTH ---
         async function checkSession() {
             authTitle.textContent = 'Загрузка...';
             authLoading.classList.remove('hidden');
@@ -336,8 +352,6 @@
                 if (session?.user) {
                     currentUser = session.user;
                     await loadProfile(currentUser.id);
-                    await requestNotificationPermission();
-                    await setupPresence();
                     showApp();
                 } else { showAuthForm(); }
             } catch (e) { displayError('Ошибка', e); showAuthForm(); }
@@ -362,6 +376,9 @@
         function showApp() {
             authModal.classList.add('hidden');
             document.getElementById('logout-btn').classList.remove('hidden');
+            requestNotificationPermission();
+            startOnlineHeartbeat();
+            setupPresence(); // global presence
             setupChatsRealtime();
             loadChats();
         }
@@ -384,8 +401,6 @@
                     if (error) throw error;
                     currentUser = data.user;
                     await loadProfile(currentUser.id);
-                    await requestNotificationPermission();
-                    await setupPresence();
                     showApp();
                 } else {
                     const email = `${nickname}@temp.mail`;
@@ -396,21 +411,20 @@
                     if (loginErr) throw loginErr;
                     currentUser = data.user;
                     await loadProfile(data.user.id);
-                    await requestNotificationPermission();
-                    await setupPresence();
                     showApp();
                 }
             } catch(e) { displayError('Ошибка', e); }
         });
         
         document.getElementById('logout-btn').addEventListener('click', async ()=>{
-            if (presenceChannel) supabase.removeChannel(presenceChannel);
             if (chatsChannel) supabase.removeChannel(chatsChannel);
+            if (presenceChannel) supabase.removeChannel(presenceChannel);
+            updateOwnOnlineStatus(false);
             await supabase.auth.signOut();
             location.reload();
         });
         
-        // Realtime чатов (список)
+        // --- CHATS LIST & REALTIME ---
         function setupChatsRealtime() {
             if (chatsChannel) supabase.removeChannel(chatsChannel);
             chatsChannel = supabase.channel('chats-list')
@@ -419,12 +433,17 @@
                     if (chat.user1_id === currentUser.id || chat.user2_id === currentUser.id) loadChats();
                 })
                 .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'chats' }, (payload) => {
-                    const chat = payload.new;
-                    // Если чат активный и обновились флаги удаления
-                    if (activeChat && activeChat.id === chat.id) {
-                        checkChatDeletionStatus(chat);
+                    // Update chat list if last_message_at or deleted flags changed
+                    loadChats();
+                    // If active chat was deleted by other, reflect it
+                    if (activeChat && payload.new.id === activeChat.id) {
+                        const isDeletedByOther = (currentUser.id === payload.new.user1_id && payload.new.deleted_by_user2) ||
+                                                 (currentUser.id === payload.new.user2_id && payload.new.deleted_by_user1);
+                        if (isDeletedByOther) {
+                            activeChat.isDeletedByOther = true;
+                            updateChatUIForDeletion();
+                        }
                     }
-                    loadChats(); // обновить список
                 })
                 .subscribe();
         }
@@ -433,18 +452,18 @@
             chatListDiv.innerHTML = '<div class="text-center opacity-50 py-10">Загрузка...</div>';
             const { data, error } = await supabase
                 .from('chats')
-                .select(`id, user1_id, user2_id, deleted_by_user1, deleted_by_user2, last_message_at,
-                    user1:profiles!chats_user1_id_fkey(nickname, is_online, last_seen),
-                    user2:profiles!chats_user2_id_fkey(nickname, is_online, last_seen)`)
+                .select(`id, user1_id, user2_id, last_message_at, deleted_by_user1, deleted_by_user2,
+                         user1:profiles!chats_user1_id_fkey(nickname), 
+                         user2:profiles!chats_user2_id_fkey(nickname)`)
                 .or(`user1_id.eq.${currentUser.id},user2_id.eq.${currentUser.id}`)
                 .order('last_message_at', { ascending: false });
             
             if (error) { chatListDiv.innerHTML = '<div class="text-center text-red-500 py-10">Ошибка</div>'; return; }
             
-            // Фильтруем: показываем только те, которые пользователь не удалил
+            // Filter out chats deleted by current user
             chatsList = (data || []).filter(chat => {
-                if (chat.user1_id === currentUser.id && chat.deleted_by_user1) return false;
-                if (chat.user2_id === currentUser.id && chat.deleted_by_user2) return false;
+                if (currentUser.id === chat.user1_id && chat.deleted_by_user1) return false;
+                if (currentUser.id === chat.user2_id && chat.deleted_by_user2) return false;
                 return true;
             });
             
@@ -459,59 +478,105 @@
             let html = '';
             chatsList.forEach(chat => {
                 const other = chat.user1_id === currentUser.id ? chat.user2 : chat.user1;
-                const otherId = chat.user1_id === currentUser.id ? chat.user2_id : chat.user1_id;
-                const isOnline = onlineUsers.get(otherId)?.isOnline || other.is_online;
-                const statusText = isOnline ? 'в сети' : (other.last_seen ? `был(а) ${formatLastSeen(new Date(other.last_seen))}` : 'не в сети');
+                const otherId = other.id;
+                const isDeletedByOther = (currentUser.id === chat.user1_id && chat.deleted_by_user2) ||
+                                         (currentUser.id === chat.user2_id && chat.deleted_by_user1);
                 
-                html += `<div class="chat-item p-3 rounded-2xl cursor-pointer transition ${activeChat?.id===chat.id ? 'bg-gray-300 dark:bg-gray-800' : 'hover:bg-gray-200 dark:hover:bg-gray-900'}" data-chat-id="${chat.id}" data-other-id="${otherId}" data-other-nickname="${other.nickname}">
-                    <div class="font-medium">${other.nickname}</div>
-                    <div class="text-xs opacity-60">${statusText}</div>
+                html += `<div class="chat-item p-3 rounded-2xl cursor-pointer transition relative group ${activeChat?.id === chat.id ? 'bg-gray-300 dark:bg-gray-800' : 'hover:bg-gray-200 dark:hover:bg-gray-900'}" 
+                    data-chat-id="${chat.id}" data-other-id="${otherId}" data-other-nickname="${other.nickname}" data-is-deleted-by-other="${isDeletedByOther}">
+                    <div class="flex justify-between items-start">
+                        <div class="flex-1">
+                            <div class="font-medium">${other.nickname}</div>
+                            <div class="chat-status text-xs opacity-60"></div>
+                        </div>
+                        <button class="delete-chat-btn opacity-0 group-hover:opacity-100 transition p-1 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-full" data-chat-id="${chat.id}" title="Удалить чат для себя">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                        </button>
+                    </div>
                 </div>`;
             });
             chatListDiv.innerHTML = html;
-            chatListDiv.querySelectorAll('.chat-item').forEach(el => el.addEventListener('click', ()=>{
-                selectChat(parseInt(el.dataset.chatId), el.dataset.otherId, el.dataset.otherNickname);
-                if (window.innerWidth < 1024) toggleSidebar(false);
-            }));
+            
+            // Attach listeners
+            chatListDiv.querySelectorAll('.chat-item').forEach(el => {
+                el.addEventListener('click', (e) => {
+                    if (e.target.closest('.delete-chat-btn')) return;
+                    const chatId = parseInt(el.dataset.chatId);
+                    const otherId = el.dataset.otherId;
+                    const otherNickname = el.dataset.otherNickname;
+                    const isDeletedByOther = el.dataset.isDeletedByOther === 'true';
+                    selectChat(chatId, otherId, otherNickname, isDeletedByOther);
+                    if (window.innerWidth < 1024) toggleSidebar(false);
+                });
+            });
+            
+            chatListDiv.querySelectorAll('.delete-chat-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const chatId = parseInt(btn.dataset.chatId);
+                    await deleteChatForMe(chatId);
+                });
+            });
+            
+            updateUIStatuses();
         }
         
-        // Создание / восстановление чата
+        async function deleteChatForMe(chatId) {
+            const chat = chatsList.find(c => c.id === chatId);
+            if (!chat) return;
+            
+            const isUser1 = chat.user1_id === currentUser.id;
+            const updateField = isUser1 ? 'deleted_by_user1' : 'deleted_by_user2';
+            
+            const { error } = await supabase
+                .from('chats')
+                .update({ [updateField]: true })
+                .eq('id', chatId);
+            
+            if (error) {
+                alert('Ошибка удаления чата');
+                return;
+            }
+            
+            // If this was active chat, close it
+            if (activeChat?.id === chatId) {
+                activeChat = null;
+                activeChatName.textContent = '';
+                activeChatStatus.textContent = '';
+                deleteChatBtn.classList.add('hidden');
+                chatDeletedBanner.classList.add('hidden');
+                messageInput.disabled = true;
+                sendBtn.disabled = true;
+                messagesContainer.innerHTML = '';
+                noChatMsg.style.display = 'flex';
+            }
+            
+            loadChats();
+        }
+        
         async function createChat(username) {
             try {
                 const { data: profile, error } = await supabase.from('profiles').select('*').eq('nickname', username).single();
                 if (error) throw new Error('Пользователь не найден');
                 if (profile.id === currentUser.id) throw new Error('Нельзя с собой');
                 
+                // Check existing chat (even if deleted, we can reuse)
                 const u1 = currentUser.id < profile.id ? currentUser.id : profile.id;
                 const u2 = currentUser.id < profile.id ? profile.id : currentUser.id;
                 
-                // Ищем существующий чат
-                const { data: existing } = await supabase.from('chats')
-                    .select('*').eq('user1_id', u1).eq('user2_id', u2).maybeSingle();
+                const { data: exist } = await supabase.from('chats').select('*').eq('user1_id', u1).eq('user2_id', u2).maybeSingle();
                 
-                if (existing) {
-                    // Проверяем, не удалён ли чат для текущего пользователя
-                    const myField = existing.user1_id === currentUser.id ? 'deleted_by_user1' : 'deleted_by_user2';
-                    const myDeleted = existing[myField];
-                    const otherField = existing.user1_id === currentUser.id ? 'deleted_by_user2' : 'deleted_by_user1';
-                    const otherDeleted = existing[otherField];
-                    
-                    if (myDeleted) {
-                        // Восстанавливаем чат для себя
-                        await supabase.from('chats').update({ [myField]: false }).eq('id', existing.id);
-                        // Если оба удалили, создаём новый чат (по заданию: пустой)
-                        if (otherDeleted) {
-                            const { data: newChat } = await supabase.from('chats').insert({ user1_id: u1, user2_id: u2 }).select().single();
-                            selectChat(newChat.id, profile.id, profile.nickname);
-                        } else {
-                            selectChat(existing.id, profile.id, profile.nickname);
-                        }
-                    } else {
-                        selectChat(existing.id, profile.id, profile.nickname);
+                if (exist) {
+                    // Reset deleted flag for current user if needed
+                    const isUser1 = exist.user1_id === currentUser.id;
+                    if ((isUser1 && exist.deleted_by_user1) || (!isUser1 && exist.deleted_by_user2)) {
+                        const updateField = isUser1 ? 'deleted_by_user1' : 'deleted_by_user2';
+                        await supabase.from('chats').update({ [updateField]: false }).eq('id', exist.id);
                     }
+                    selectChat(exist.id, profile.id, profile.nickname, false);
                 } else {
                     const { data: newChat } = await supabase.from('chats').insert({ user1_id: u1, user2_id: u2 }).select().single();
-                    selectChat(newChat.id, profile.id, profile.nickname);
+                    selectChat(newChat.id, profile.id, profile.nickname, false);
                 }
                 document.getElementById('new-chat-input').value = '';
             } catch(e) { displayError('Ошибка создания', e); }
@@ -523,104 +588,51 @@
             if (val) createChat(val);
         });
         
-        async function selectChat(chatId, otherId, otherNickname) {
+        // --- CHAT SELECTION & UI UPDATE ---
+        async function selectChat(chatId, otherId, otherNickname, isDeletedByOther = false) {
             if (realtimeChannel) { supabase.removeChannel(realtimeChannel); realtimeChannel = null; }
             
-            // Получаем полную информацию о чате (флаги удаления)
-            const { data: chatData } = await supabase.from('chats').select('*').eq('id', chatId).single();
-            
-            activeChat = { 
-                id: chatId, 
-                otherUserId: otherId, 
-                otherUserNickname: otherNickname,
-                chatData 
-            };
-            
+            activeChat = { id: chatId, otherUserId: otherId, otherUserNickname: otherNickname, isDeletedByOther };
             activeChatName.textContent = otherNickname;
-            noChatMsg.style.display = 'none';
-            
-            // Проверяем статус чата
-            checkChatDeletionStatus(chatData);
-            
-            // Статус онлайн
-            const onlineInfo = onlineUsers.get(otherId);
-            const { data: profile } = await supabase.from('profiles').select('is_online, last_seen').eq('id', otherId).single();
-            const isOnline = onlineInfo?.isOnline || profile?.is_online;
-            const lastSeen = profile?.last_seen;
-            activeChatStatus.textContent = isOnline ? 'в сети' : (lastSeen ? `был(а) ${formatLastSeen(new Date(lastSeen))}` : 'не в сети');
-            
-            // Показываем кнопку удаления
-            deleteChatBtn.classList.remove('hidden');
+            updateChatUIForDeletion();
             
             renderChatList();
             await loadMessages(chatId);
             setupMessagesRealtime(chatId);
-            
-            // Включаем ввод только если чат не в режиме "только чтение"
-            const isReadOnly = checkIfReadOnly(chatData);
-            messageInput.disabled = isReadOnly;
-            sendBtn.disabled = isReadOnly;
-            fileUpload.disabled = isReadOnly;
+            setupPresence(chatId);  // presence for this chat
             
             messageInput.focus();
-        }
-        
-        function checkIfReadOnly(chatData) {
-            if (!chatData) return false;
-            const otherDeleted = chatData.user1_id === currentUser.id ? chatData.deleted_by_user2 : chatData.deleted_by_user1;
-            return otherDeleted; // если собеседник удалил чат, мы в режиме чтения
-        }
-        
-        function checkChatDeletionStatus(chatData) {
-            if (!chatData) return;
-            const otherDeleted = chatData.user1_id === currentUser.id ? chatData.deleted_by_user2 : chatData.deleted_by_user1;
-            const myDeleted = chatData.user1_id === currentUser.id ? chatData.deleted_by_user1 : chatData.deleted_by_user2;
+            deleteChatBtn.classList.remove('hidden');
             
-            if (otherDeleted) {
-                chatBanner.textContent = 'Собеседник завершил чат. Вы можете только читать сообщения.';
-                chatBanner.classList.remove('hidden');
+            // Delete chat button handler
+            deleteChatBtn.onclick = () => deleteChatForMe(chatId);
+        }
+        
+        function updateChatUIForDeletion() {
+            if (!activeChat) return;
+            const isDeleted = activeChat.isDeletedByOther;
+            
+            if (isDeleted) {
+                chatDeletedBanner.classList.remove('hidden');
                 messageInput.disabled = true;
                 sendBtn.disabled = true;
-                fileUpload.disabled = true;
             } else {
-                chatBanner.classList.add('hidden');
+                chatDeletedBanner.classList.add('hidden');
                 messageInput.disabled = false;
                 sendBtn.disabled = false;
-                fileUpload.disabled = false;
             }
+            noChatMsg.style.display = 'none';
         }
         
-        // Удаление чата (со стороны текущего пользователя)
-        async function deleteCurrentChat() {
-            if (!activeChat) return;
-            const chat = activeChat.chatData;
-            const myField = chat.user1_id === currentUser.id ? 'deleted_by_user1' : 'deleted_by_user2';
-            
-            if (confirm('Удалить этот чат? Вы сможете восстановить его, начав новый диалог с этим пользователем.')) {
-                await supabase.from('chats').update({ [myField]: true }).eq('id', chat.id);
-                // Закрываем чат
-                activeChat = null;
-                activeChatName.textContent = '';
-                activeChatStatus.textContent = '';
-                deleteChatBtn.classList.add('hidden');
-                messagesContainer.innerHTML = '<div id="no-chat-message" class="h-full flex items-center justify-center opacity-50">Выберите чат</div>';
-                noChatMsg.style.display = 'flex';
-                messageInput.disabled = true;
-                sendBtn.disabled = true;
-                fileUpload.disabled = true;
-                chatBanner.classList.add('hidden');
-                loadChats();
-                if (realtimeChannel) { supabase.removeChannel(realtimeChannel); realtimeChannel = null; }
-            }
-        }
+        deleteChatForMeBtn.addEventListener('click', () => {
+            if (activeChat) deleteChatForMe(activeChat.id);
+        });
         
-        deleteChatBtn.addEventListener('click', deleteCurrentChat);
-        
-        // Загрузка сообщений
+        // --- MESSAGES ---
         async function loadMessages(chatId) {
             messagesContainer.innerHTML = '<div class="text-center opacity-50 py-10">Загрузка...</div>';
             const [msgRes, fileRes] = await Promise.all([
-                supabase.from('messages').select(`id, content, created_at, sender_id, sender:profiles!messages_sender_id_fkey(nickname)`).eq('chat_id', chatId).is('deleted_at', null).order('created_at', { ascending: true }),
+                supabase.from('messages').select(`id, content, created_at, sender_id, deleted_at, sender:profiles!messages_sender_id_fkey(nickname)`).eq('chat_id', chatId).order('created_at', { ascending: true }),
                 supabase.from('files').select('*').eq('chat_id', chatId).order('created_at', { ascending: true })
             ]);
             if (msgRes.error || fileRes.error) { messagesContainer.innerHTML = '<div class="text-red-500">Ошибка</div>'; return; }
@@ -630,7 +642,7 @@
         function renderAllMessages(messages, files) {
             messagesContainer.innerHTML = '';
             const items = [
-                ...messages.map(m => ({ ...m, type: 'msg' })),
+                ...messages.filter(m => !m.deleted_at).map(m => ({ ...m, type: 'msg' })),
                 ...files.map(f => ({ ...f, type: 'file', created_at: f.created_at }))
             ].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
             
@@ -653,30 +665,57 @@
         
         function createMessageElement(msg) {
             const isOwn = msg.sender_id === currentUser.id;
-            const time = new Date(msg.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+            const time = formatTime(msg.created_at);
             const div = document.createElement('div');
-            div.className = `flex ${isOwn ? 'justify-end' : 'justify-start'} relative group`;
+            div.className = `flex ${isOwn ? 'justify-end' : 'justify-start'} message-bubble relative group`;
             div.dataset.messageId = msg.id;
             div.dataset.content = msg.content;
             div.dataset.senderId = msg.sender_id;
+            
             div.innerHTML = `<div class="max-w-[80%]">
                 <div class="text-xs opacity-50 mb-1 ${isOwn?'text-right':''}">${msg.sender.nickname} • ${time}</div>
-                <div class="rounded-3xl px-5 py-3 ${isOwn ? 'bg-black dark:bg-white text-white dark:text-black' : 'bg-gray-200 dark:bg-gray-800'}">${escapeHtml(msg.content)}</div>
+                <div class="rounded-3xl px-5 py-3 relative ${isOwn ? 'bg-black dark:bg-white text-white dark:text-black' : 'bg-gray-200 dark:bg-gray-800'}">
+                    ${escapeHtml(msg.content)}
+                    ${isOwn ? `
+                    <div class="message-actions absolute top-1 right-1">
+                        <button class="delete-message-btn p-1 rounded-full bg-red-100 dark:bg-red-900/50 text-red-600 hover:bg-red-200" data-message-id="${msg.id}">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                        </button>
+                    </div>
+                    ` : ''}
+                </div>
             </div>`;
             
-            // Контекстное меню для своих сообщений
-            if (isOwn) {
-                div.addEventListener('contextmenu', (e) => {
-                    e.preventDefault();
-                    showContextMenu(e.clientX, e.clientY, msg.id);
+            const delBtn = div.querySelector('.delete-message-btn');
+            if (delBtn) {
+                delBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    if (confirm('Удалить сообщение?')) {
+                        await deleteMessage(msg.id);
+                    }
                 });
             }
             return div;
         }
         
+        async function deleteMessage(messageId) {
+            const { error } = await supabase
+                .from('messages')
+                .update({ deleted_at: new Date().toISOString() })
+                .eq('id', messageId)
+                .eq('sender_id', currentUser.id); // RLS ensures only own messages
+            
+            if (error) {
+                alert('Ошибка удаления');
+            }
+            // Realtime will handle UI removal
+        }
+        
         function createFileElement(file) {
+            // ... (сохраняем существующую логику отображения файлов, без изменений)
+            // (Код создания файлов оставлен как в исходной версии для краткости, он аналогичен предыдущему)
             const isOwn = file.uploaded_by === currentUser.id;
-            const time = new Date(file.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+            const time = formatTime(file.created_at);
             const div = document.createElement('div');
             div.className = `flex ${isOwn ? 'justify-end' : 'justify-start'}`;
             div.dataset.fileId = file.id;
@@ -697,107 +736,108 @@
                 const signedUrl = data?.signedUrl || '#';
                 let mediaHtml = '';
                 if (file.is_image) {
-                    mediaHtml = `<img src="${signedUrl}" class="max-w-full rounded-2xl mt-1 cursor-pointer" style="max-height:250px" data-file-id="${file.id}" data-storage-path="${file.storage_path}" data-filename="${file.filename}">`;
+                    mediaHtml = `<img src="${signedUrl}" class="max-w-full rounded-2xl mt-1 cursor-pointer" style="max-height:250px" data-file-id="${file.id}">`;
                 } else if (file.mime_type?.startsWith('video/')) {
-                    mediaHtml = `<video controls class="max-w-full rounded-2xl mt-1" style="max-height:250px" data-file-id="${file.id}" data-storage-path="${file.storage_path}" data-filename="${file.filename}"><source src="${signedUrl}"></video>`;
+                    mediaHtml = `<video controls class="max-w-full rounded-2xl mt-1" style="max-height:250px"><source src="${signedUrl}"></video>`;
                 } else if (file.mime_type?.startsWith('audio/')) {
-                    mediaHtml = `<audio controls class="w-full mt-1" data-file-id="${file.id}" data-storage-path="${file.storage_path}" data-filename="${file.filename}"><source src="${signedUrl}"></audio>`;
+                    mediaHtml = `<audio controls class="w-full mt-1"><source src="${signedUrl}"></audio>`;
                 } else {
                     mediaHtml = `<div class="flex items-center gap-3">
                         <svg class="w-6 h-6 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                         <div class="flex-1"><div class="font-medium">${file.filename}</div><div class="text-xs opacity-50">${(file.size/1024).toFixed(0)}KB</div></div>
-                        <button class="download-btn bg-black dark:bg-white text-white dark:text-black px-3 py-1 rounded-full text-sm" data-file-id="${file.id}" data-storage-path="${file.storage_path}" data-filename="${file.filename}">Скачать</button>
+                        <button class="download-btn bg-black dark:bg-white text-white dark:text-black px-3 py-1 rounded-full text-sm">Скачать</button>
                     </div>`;
                 }
-                
                 innerDiv.querySelector('.rounded-3xl').innerHTML = mediaHtml + `<div class="text-xs opacity-70 mt-1">${file.filename}</div>`;
                 
                 innerDiv.querySelector('img')?.addEventListener('click', (e) => {
-                    const img = e.currentTarget;
-                    window.open(img.src, '_blank');
-                    markFileAsViewed(file.id, file.storage_path, file.filename);
+                    window.open(e.currentTarget.src, '_blank');
+                    markFileAsViewed(file.id, file.storage_path);
                 });
-                
                 innerDiv.querySelector('video, audio')?.addEventListener('play', () => {
-                    markFileAsViewed(file.id, file.storage_path, file.filename);
+                    markFileAsViewed(file.id, file.storage_path);
                 }, { once: true });
-                
                 innerDiv.querySelector('.download-btn')?.addEventListener('click', (e) => {
                     e.stopPropagation();
                     downloadAndMarkViewed(file.id, file.storage_path, file.filename);
                 });
-                
-                scrollToBottom();
             }).catch(e => {});
-            
             return div;
         }
         
-        async function markFileAsViewed(fileId, storagePath, filename) { /* ... как было ... */ }
-        async function downloadAndMarkViewed(fileId, storagePath, filename) { /* ... как было ... */ }
-        
-        // Контекстное меню удаления сообщения
-        function showContextMenu(x, y, messageId) {
-            currentContextMessageId = messageId;
-            contextMenu.innerHTML = `<div class="context-menu-item" id="delete-message-option">Удалить сообщение</div>`;
-            contextMenu.style.left = x + 'px';
-            contextMenu.style.top = y + 'px';
-            contextMenu.classList.remove('hidden');
-            
-            document.getElementById('delete-message-option').addEventListener('click', async () => {
-                await deleteMessage(messageId);
-                contextMenu.classList.add('hidden');
-            });
-            
-            const closeMenu = (e) => {
-                if (!contextMenu.contains(e.target)) {
-                    contextMenu.classList.add('hidden');
-                    document.removeEventListener('click', closeMenu);
+        async function markFileAsViewed(fileId, storagePath) {
+            // ... (без изменений)
+            try {
+                let blob = await db?.get('files', storagePath);
+                if (!blob) {
+                    const { data } = await supabase.storage.from('chat-files').download(storagePath);
+                    if (data) {
+                        blob = data;
+                        await db?.put('files', blob, storagePath);
+                    }
                 }
-            };
-            setTimeout(() => document.addEventListener('click', closeMenu), 0);
+                await supabase.from('file_views').insert({ file_id: fileId, user_id: currentUser.id });
+            } catch(e) {}
         }
         
-        async function deleteMessage(messageId) {
-            const { error } = await supabase.from('messages')
-                .update({ deleted_at: new Date().toISOString() })
-                .eq('id', messageId)
-                .eq('sender_id', currentUser.id);
-            if (!error) {
-                // Удаляем из DOM (realtime подхватит, но для скорости)
-                const el = document.querySelector(`[data-message-id="${messageId}"]`);
-                if (el) el.remove();
-            } else {
-                alert('Не удалось удалить сообщение');
-            }
+        async function downloadAndMarkViewed(fileId, storagePath, filename) {
+            // ... (без изменений)
+            try {
+                let blob = await db?.get('files', storagePath);
+                if (!blob) {
+                    const { data, error } = await supabase.storage.from('chat-files').download(storagePath);
+                    if (error) throw error;
+                    blob = data;
+                    await db?.put('files', blob, storagePath);
+                }
+                await supabase.from('file_views').insert({ file_id: fileId, user_id: currentUser.id });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                a.click();
+                URL.revokeObjectURL(url);
+            } catch(e) { alert('Ошибка скачивания'); }
         }
         
-        // Realtime сообщений
+        // --- REALTIME MESSAGES & FILES ---
         function setupMessagesRealtime(chatId) {
             realtimeChannel = supabase.channel(`chat-${chatId}`)
                 .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `chat_id=eq.${chatId}` }, async (payload) => {
                     const msg = payload.new;
                     if (msg.deleted_at) return;
                     
-                    // Уведомление
-                    if (msg.sender_id !== currentUser.id) {
-                        showNotification(`${activeChat.otherUserNickname}`, msg.content);
+                    // Handle own pending message
+                    const tempEntry = [...pendingMessages.entries()].find(([k, v]) => v.content === msg.content && v.senderId === msg.sender_id);
+                    if (tempEntry) {
+                        const [tempId] = tempEntry;
+                        const tempEl = document.querySelector(`[data-message-id="${tempId}"]`);
+                        if (tempEl) {
+                            const newEl = createMessageElement({...msg, sender: {nickname: currentProfile.nickname}});
+                            tempEl.replaceWith(newEl);
+                            pendingMessages.delete(tempId);
+                            scrollToBottom();
+                            return;
+                        }
                     }
-                    
-                    // Обновление last_message_at для сортировки
-                    await supabase.from('chats').update({ last_message_at: new Date() }).eq('id', chatId);
                     
                     const { data: sender } = await supabase.from('profiles').select('nickname').eq('id', msg.sender_id).single();
                     const newEl = createMessageElement({...msg, sender});
                     newEl.classList.add('message-animate');
                     messagesContainer.appendChild(newEl);
                     scrollToBottom();
+                    
+                    // Notification
+                    if (msg.sender_id !== currentUser.id) {
+                        showNotification(activeChat.otherUserNickname, msg.content, '/favicon.ico');
+                    }
                 })
                 .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `chat_id=eq.${chatId}` }, (payload) => {
                     const msg = payload.new;
                     if (msg.deleted_at) {
-                        const el = document.querySelector(`[data-message-id="${msg.id}"]`);
-                        if (el) el.remove();
+                        // Remove message from UI
+                        const msgEl = document.querySelector(`[data-message-id="${msg.id}"]`);
+                        if (msgEl) msgEl.remove();
                     }
                 })
                 .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'files', filter: `chat_id=eq.${chatId}` }, (payload) => {
@@ -806,23 +846,29 @@
                     messagesContainer.appendChild(newEl);
                     scrollToBottom();
                 })
-                // Индикатор печати (broadcast)
-                .on('broadcast', { event: 'typing' }, (payload) => {
-                    if (payload.payload.userId !== currentUser.id) {
-                        typingIndicator.classList.remove('hidden');
-                        clearTimeout(typingTimeout);
-                        typingTimeout = setTimeout(() => typingIndicator.classList.add('hidden'), 2000);
-                    }
-                })
                 .subscribe();
         }
         
-        // Отправка сообщения
+        // --- SEND MESSAGE ---
+        messageInput.addEventListener('input', () => {
+            if (!activeChat) return;
+            // Typing indicator
+            if (messageInput.value.length > 0) {
+                setTypingStatus(true);
+                if (typingTimeout) clearTimeout(typingTimeout);
+                typingTimeout = setTimeout(() => setTypingStatus(false), 2000);
+            } else {
+                setTypingStatus(false);
+            }
+        });
+        
         document.getElementById('send-message-form').addEventListener('submit', async (e)=>{
             e.preventDefault();
+            if (!activeChat || activeChat.isDeletedByOther) return;
             const content = messageInput.value.trim();
-            if (!content || !activeChat) return;
+            if (!content) return;
             messageInput.value = '';
+            setTypingStatus(false);
             
             const tempId = 'temp_'+Date.now();
             const tempMsg = { id: tempId, content, created_at: new Date().toISOString(), sender_id: currentUser.id, sender: { nickname: currentProfile.nickname } };
@@ -838,27 +884,42 @@
                 pendingMessages.delete(tempId);
                 displayError('Ошибка отправки', error);
             }
-            
-            // Обновить last_message_at (триггер сделает, но для UI сортировки загрузим чаты)
-            loadChats();
         });
         
-        // Индикатор печати
-        messageInput.addEventListener('input', () => {
-            if (!activeChat) return;
-            realtimeChannel?.send({
-                type: 'broadcast',
-                event: 'typing',
-                payload: { userId: currentUser.id }
-            });
+        // --- FILE UPLOAD --- (без изменений)
+        fileUpload.addEventListener('change', async (e)=>{
+            const file = e.target.files[0];
+            if (!file) return;
+            uploadStatus.classList.remove('hidden');
+            uploadStatus.textContent = `Загрузка ${file.name}...`;
+            try {
+                if (file.size > 100*1024*1024) throw new Error('Файл >100MB');
+                let processed = file;
+                if (file.type.startsWith('image/')) {
+                    processed = await imageCompression(file, { maxSizeMB:1, maxWidthOrHeight:1920 });
+                }
+                const path = `${activeChat.id}/${currentUser.id}_${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g,'_')}`;
+                const { error: upErr } = await supabase.storage.from('chat-files').upload(path, processed);
+                if (upErr) throw upErr;
+                
+                await db?.put('files', processed, path);
+                
+                const { data: fileData } = await supabase.from('files').insert({
+                    chat_id: activeChat.id, uploaded_by: currentUser.id, storage_path: path,
+                    filename: file.name, size: processed.size, mime_type: processed.type, is_image: processed.type.startsWith('image/')
+                }).select().single();
+                
+                const newEl = createFileElement(fileData);
+                newEl.classList.add('message-animate');
+                messagesContainer.appendChild(newEl);
+                scrollToBottom();
+                uploadStatus.textContent = 'Отправлено';
+                setTimeout(()=> uploadStatus.classList.add('hidden'), 2000);
+            } catch(e) { uploadStatus.textContent = 'Ошибка'; }
+            finally { fileUpload.value = ''; }
         });
         
-        // Загрузка файлов (как было)
-        fileUpload.addEventListener('change', async (e)=>{ /* ... как было ... */ });
-        
-        function escapeHtml(t) { const d=document.createElement('div'); d.textContent=t; return d.innerHTML; }
-        
-        // Старт
+        // --- START ---
         checkSession();
     })();
 </script>
